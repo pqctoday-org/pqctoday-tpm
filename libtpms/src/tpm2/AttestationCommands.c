@@ -179,6 +179,10 @@ TPM2_Quote(
     // compute PCR digest. If there is no algorithm, then the PCR cannot
     // be digested and this command returns TPM_RC_SCHEME
     hashAlg = in->inScheme.details.any.hashAlg;
+#if ALG_MLDSA || ALG_HASH_MLDSA
+    if(hashAlg == TPM_ALG_NULL && (signObject->publicArea.type == TPM_ALG_MLDSA || signObject->publicArea.type == TPM_ALG_HASH_MLDSA))
+	hashAlg = signObject->publicArea.nameAlg;
+#endif
     if(hashAlg == TPM_ALG_NULL)
 	return TPM_RCS_SCHEME + RC_Quote_inScheme;
     // Compute PCR digest

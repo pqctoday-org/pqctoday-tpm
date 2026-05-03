@@ -2320,6 +2320,42 @@ HMAC_STATE_Unmarshal(HMAC_STATE *data, BYTE **buffer, INT32 *size)
     return rc;
 }
 
+#if ALG_MLDSA || ALG_HASH_MLDSA
+static UINT16
+PQC_SEQ_STATE_Marshal(PQC_SEQ_STATE *data, BYTE **buffer, INT32 *size)
+{
+    UINT16 written = 0;
+    written += BOOL_Marshal(&data->isSign, buffer, size);
+    written += TPM_HANDLE_Marshal(&data->keyHandle, buffer, size);
+    written += TPM_ALG_ID_Marshal(&data->keyType, buffer, size);
+    written += TPMI_MLDSA_PARAMETER_SET_Marshal(&data->paramSet, buffer, size);
+    written += TPM2B_SIGNATURE_HINT_Marshal(&data->hint, buffer, size);
+    written += TPM2B_SIGNATURE_CTX_Marshal(&data->context, buffer, size);
+    written += UINT32_Marshal(&data->bufferUsed, buffer, size);
+    written += Array_Marshal(data->buffer, data->bufferUsed, buffer, size);
+    return written;
+}
+
+static TPM_RC
+PQC_SEQ_STATE_Unmarshal(PQC_SEQ_STATE *data, BYTE **buffer, INT32 *size)
+{
+    TPM_RC rc = TPM_RC_SUCCESS;
+    if (rc == TPM_RC_SUCCESS) rc = BOOL_Unmarshal(&data->isSign, buffer, size);
+    if (rc == TPM_RC_SUCCESS) rc = TPM_HANDLE_Unmarshal(&data->keyHandle, buffer, size);
+    if (rc == TPM_RC_SUCCESS) rc = TPM_ALG_ID_Unmarshal(&data->keyType, buffer, size);
+    if (rc == TPM_RC_SUCCESS) rc = TPMI_MLDSA_PARAMETER_SET_Unmarshal(&data->paramSet, buffer, size);
+    if (rc == TPM_RC_SUCCESS) rc = TPM2B_SIGNATURE_HINT_Unmarshal(&data->hint, buffer, size);
+    if (rc == TPM_RC_SUCCESS) rc = TPM2B_SIGNATURE_CTX_Unmarshal(&data->context, buffer, size);
+    if (rc == TPM_RC_SUCCESS) rc = UINT32_Unmarshal(&data->bufferUsed, buffer, size);
+    if (rc == TPM_RC_SUCCESS) {
+        if (data->bufferUsed > MAX_PQC_SEQ_BUFFER) return TPM_RC_SIZE;
+        rc = Array_Unmarshal(data->buffer, data->bufferUsed, buffer, size);
+    }
+    return rc;
+}
+#endif
+
+
 #define HASH_OBJECT_MAGIC 0xb874fe38
 #define HASH_OBJECT_VERSION 3
 
@@ -2347,6 +2383,10 @@ HASH_OBJECT_Marshal(HASH_OBJECT *data, BYTE **buffer, INT32 *size)
         }
     } else if (data->attributes.hmacSeq == SET) {
         written += HMAC_STATE_Marshal(&data->state.hmacState, buffer, size);
+#if ALG_MLDSA || ALG_HASH_MLDSA
+    } else if (data->attributes.pqcSeq == SET) {
+        written += PQC_SEQ_STATE_Marshal(&data->state.pqcState, buffer, size);
+#endif
     }
 
     written += BLOCK_SKIP_WRITE_PUSH(TRUE, buffer, size);
@@ -2407,6 +2447,10 @@ HASH_OBJECT_Unmarshal(HASH_OBJECT *data, BYTE **buffer, INT32 *size)
             }
         } else if (data->attributes.hmacSeq == SET) {
             rc = HMAC_STATE_Unmarshal(&data->state.hmacState, buffer, size);
+#if ALG_MLDSA || ALG_HASH_MLDSA
+        } else if (data->attributes.pqcSeq == SET) {
+            rc = PQC_SEQ_STATE_Unmarshal(&data->state.pqcState, buffer, size);
+#endif
         }
     }
 

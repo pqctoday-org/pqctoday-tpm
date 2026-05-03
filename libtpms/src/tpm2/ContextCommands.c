@@ -126,7 +126,7 @@ TPM2_ContextSave(ContextSave_In*  in,  // IN: input parameter list
 	      {
 		  OBJECT*            object = HandleToObject(in->saveHandle);
 		  ANY_OBJECT_BUFFER* outObject;
-		  unsigned char      objbuf[sizeof(OBJECT) * 2];		// libtpms changed begin
+		  unsigned char      objbuf[sizeof(HASH_OBJECT) * 2 + sizeof(OBJECT) * 2];		// libtpms changed begin
 		  BYTE*              bufptr = &objbuf[0];
 		  INT32              size = sizeof(objbuf);
 		  UINT16             objectSize;				// libtpms changed end

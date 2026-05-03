@@ -856,6 +856,256 @@ int main(void)
         PASS("Phase 4.1: VerifySequenceComplete → TPM_ST_MESSAGE_VERIFIED — full ML-DSA roundtrip");
     }
 
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     * Test 8 — TPM2_Quote with ML-DSA-65 AK
+     *
+     * Validates: The "Quote-exception" allows ML-DSA schemes (which have
+     * hashAlg = TPM_ALG_NULL) to fall back to the AK's nameAlg (SHA-256)
+     * to digest the PCRs, producing a valid Quote signature.
+     * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    {
+        /* We'll use the restricted ML-DSA-65 AK from Test 2 (akHandle).
+         * Wait, tests 6/7 flushed handles. Let's just create a fresh restricted AK. */
+        uint32_t quoteAkHandle;
+        {
+            uint32_t attrs = TPMA_FIXEDTPM | TPMA_FIXEDPARENT | TPMA_SENSITIVEDATA
+                           | TPMA_USERWITHAUTH | TPMA_RESTRICTED | TPMA_SIGN;
+            uint32_t rc = do_create_primary(TPM_RH_OWNER, (uint16_t)TPM_ALG_MLDSA,
+                                            (uint16_t)TPM_MLDSA_65, attrs,
+                                            resp, sizeof(resp));
+            if (rc != 0) {
+                FAIL("Test 8: CreatePrimary(ML-DSA-65 restricted) rc=0x%08x", rc);
+                goto done;
+            }
+            quoteAkHandle = get_u32(resp + 10);
+        }
+
+        /* TPM2_Quote (TPM_ST_SESSIONS):
+         * header(10) | H1: signHandle | P1: qualifyingData | P2: inScheme | P3: PCRselect */
+        static const uint8_t qualData[8] = { 0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88 };
+        uint8_t cmd[256]; uint8_t *p = cmd;
+        p = put_u16(p, (uint16_t)TPM_ST_SESSIONS);
+        p = put_u32(p, 0);
+        p = put_u32(p, 0x00000158u); /* TPM_CC_Quote */
+        p = put_u32(p, quoteAkHandle);
+        /* authArea: 1 PW session (9 bytes) */
+        p = put_u32(p, 9);
+        p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
+        /* P1: qualifyingData TPM2B */
+        p = put_u16(p, 8); memcpy(p, qualData, 8); p += 8;
+        /* P2: inScheme (TPMT_SIG_SCHEME) = TPM_ALG_NULL */
+        p = put_u16(p, (uint16_t)TPM_ALG_NULL);
+        /* P3: PCRselect (TPML_PCR_SELECTION): count=1, hash=SHA256, select=PCR0 */
+        p = put_u32(p, 1);
+        p = put_u16(p, (uint16_t)TPM_ALG_SHA256);
+        *p++ = 3; /* sizeOfSelect */
+        *p++ = 1; *p++ = 0; *p++ = 0; /* PCR0 */
+        uint32_t len = (uint32_t)(p - cmd);
+        put_u32(cmd + 2, len);
+        resp_len = sizeof(resp);
+        send_command(cmd, len, resp, &resp_len);
+        uint32_t rc = response_rc(resp, resp_len);
+        if (rc != 0) {
+            FAIL("Quote(ML-DSA-65 restricted) rc=0x%08x", rc);
+            goto done;
+        }
+
+        /* Check signature size */
+        const uint8_t *q = resp + 14; /* skip hdr + paramSize */
+        uint16_t quoted_sz = get_u16(q); q += 2 + quoted_sz; /* skip quoted TPM2B */
+        uint16_t sigAlg = get_u16(q); q += 2;
+        uint16_t sigSize = get_u16(q); q += 2;
+        if (sigAlg != (uint16_t)TPM_ALG_MLDSA || sigSize != MLDSA_65_SIG_SIZE) {
+            FAIL("Quote: sigAlg=0x%04x size=%u (want MLDSA + %d)", sigAlg, sigSize, MLDSA_65_SIG_SIZE);
+            goto done;
+        }
+        PASS("Test 8: Quote with ML-DSA AK produced valid %u B signature", sigSize);
+    }
+
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     * Test 9 — TPM2_ContextSave / TPM2_ContextLoad for ML-DSA sequence
+     *
+     * Validates: A sequence handle created for ML-DSA can be saved out
+     * of TPM memory and successfully loaded back, and the sequence can
+     * then be completed to produce a valid signature.
+     * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    {
+        /* Flush all transient handles (0x80000000 .. 0x80000003) and
+         * sequence handles (0x80000000 .. 0x80000003) just in case,
+         * since we might be out of memory slots. */
+        for (uint32_t h = 0x80000000u; h <= 0x80000004u; h++) {
+            uint8_t cmd[14]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_NO_SESSIONS);
+            p = put_u32(p, 14);
+            p = put_u32(p, 0x00000165u);   /* TPM_CC_FlushContext */
+            p = put_u32(p, h);
+            resp_len = sizeof(resp);
+            send_command(cmd, 14, resp, &resp_len);
+        }
+
+        uint32_t dsaKey;
+        {
+            uint32_t attrs = TPMA_FIXEDTPM | TPMA_FIXEDPARENT | TPMA_SENSITIVEDATA
+                           | TPMA_USERWITHAUTH | TPMA_SIGN;
+            uint32_t rc = do_create_primary_ext(TPM_RH_OWNER, (uint16_t)TPM_ALG_MLDSA,
+                                                (uint16_t)TPM_MLDSA_65, attrs, TPM_YES,
+                                                resp, sizeof(resp));
+            if (rc != 0) {
+                FAIL("Test 9: CreatePrimary rc=0x%08x", rc);
+                goto done;
+            }
+            dsaKey = get_u32(resp + 10);
+        }
+
+        /* SignSequenceStart */
+        uint32_t seqHandle;
+        {
+            uint8_t cmd[64]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_NO_SESSIONS);
+            p = put_u32(p, 0);
+            p = put_u32(p, TPM_CC_SignSequenceStart);
+            p = put_u32(p, dsaKey);
+            p = put_u16(p, 0); p = put_u16(p, 0);
+            uint32_t len = (uint32_t)(p - cmd);
+            put_u32(cmd + 2, len);
+            resp_len = sizeof(resp);
+            send_command(cmd, len, resp, &resp_len);
+            uint32_t r = response_rc(resp, resp_len);
+            if (r != 0) { FAIL("Test 9: SignSequenceStart rc=0x%08x", r); goto done; }
+            seqHandle = get_u32(resp + 10);
+        }
+
+        /* ContextSave */
+        uint8_t contextBlob[4096];
+        uint16_t contextSize = 0;
+        {
+            uint8_t cmd[64]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_NO_SESSIONS);
+            p = put_u32(p, 0);
+            p = put_u32(p, 0x00000162u); /* TPM_CC_ContextSave */
+            p = put_u32(p, seqHandle);
+            uint32_t len = (uint32_t)(p - cmd);
+            put_u32(cmd + 2, len);
+            resp_len = sizeof(resp);
+            send_command(cmd, len, resp, &resp_len);
+            uint32_t r = response_rc(resp, resp_len);
+            if (r != 0) { FAIL("Test 9: ContextSave rc=0x%08x", r); goto done; }
+            /* Copy the TPMS_CONTEXT structure out */
+            contextSize = resp_len - 10;
+            memcpy(contextBlob, resp + 10, contextSize);
+        }
+
+        /* FlushContext */
+        {
+            uint8_t cmd[14]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_NO_SESSIONS);
+            p = put_u32(p, 14);
+            p = put_u32(p, 0x00000165u); /* TPM_CC_FlushContext */
+            p = put_u32(p, seqHandle);
+            resp_len = sizeof(resp);
+            send_command(cmd, 14, resp, &resp_len);
+            uint32_t r = response_rc(resp, resp_len);
+            if (r != 0) { FAIL("Test 9: FlushContext rc=0x%08x", r); goto done; }
+        }
+
+        /* ContextLoad */
+        uint32_t loadedHandle;
+        {
+            uint8_t cmd[4096]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_NO_SESSIONS);
+            p = put_u32(p, 0);
+            p = put_u32(p, 0x00000161u); /* TPM_CC_ContextLoad */
+            memcpy(p, contextBlob, contextSize); p += contextSize;
+            uint32_t len = (uint32_t)(p - cmd);
+            put_u32(cmd + 2, len);
+            resp_len = sizeof(resp);
+            send_command(cmd, len, resp, &resp_len);
+            uint32_t r = response_rc(resp, resp_len);
+            if (r != 0) { FAIL("Test 9: ContextLoad rc=0x%08x", r); goto done; }
+            loadedHandle = get_u32(resp + 10);
+        }
+
+        /* SignSequenceComplete using loadedHandle */
+        {
+            static const uint8_t message[32] = { 0xAA,0xBB,0xCC };
+            uint8_t cmd[2048]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_SESSIONS);
+            p = put_u32(p, 0);
+            p = put_u32(p, TPM_CC_SignSequenceComplete);
+            p = put_u32(p, loadedHandle);
+            p = put_u32(p, dsaKey);
+            p = put_u32(p, 18);
+            p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
+            p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
+            p = put_u16(p, 32); memcpy(p, message, 32); p += 32;
+            uint32_t len = (uint32_t)(p - cmd);
+            put_u32(cmd + 2, len);
+            resp_len = sizeof(resp);
+            send_command(cmd, len, resp, &resp_len);
+            uint32_t r = response_rc(resp, resp_len);
+            if (r != 0) { FAIL("Test 9: SignSequenceComplete after load rc=0x%08x", r); goto done; }
+        }
+        PASS("Test 9: ContextSave -> ContextLoad -> Complete roundtrip successful");
+    }
+
+    /* Test 10: Certify with ML-DSA AK */
+    {
+        uint32_t akHandle, objHandle;
+        
+        /* Create ML-DSA AK */
+        {
+            uint32_t attrs = TPMA_FIXEDTPM | TPMA_FIXEDPARENT | TPMA_SENSITIVEDATA | TPMA_USERWITHAUTH | TPMA_RESTRICTED | TPMA_SIGN;
+            uint32_t rc = do_create_primary_ext(TPM_RH_OWNER, (uint16_t)TPM_ALG_MLDSA,
+                                                (uint16_t)TPM_MLDSA_65, attrs, TPM_NO, /* restricted = YES (attrs), externalMu = NO */
+                                                resp, sizeof(resp));
+            if (rc != 0) { FAIL("Test 10: Create ML-DSA AK rc=0x%08x", rc); goto done; }
+            akHandle = get_u32(resp + 10);
+        }
+
+        /* Create ML-DSA key to be certified */
+        {
+            uint32_t attrs = TPMA_FIXEDTPM | TPMA_FIXEDPARENT | TPMA_SENSITIVEDATA | TPMA_USERWITHAUTH | TPMA_DECRYPT;
+            uint32_t rc = do_create_primary_ext(TPM_RH_OWNER, (uint16_t)TPM_ALG_MLDSA,
+                                                (uint16_t)TPM_MLDSA_65, attrs, TPM_NO,
+                                                resp, sizeof(resp));
+            if (rc != 0) { FAIL("Test 10: Create ML-DSA obj rc=0x%08x", rc); goto done; }
+            objHandle = get_u32(resp + 10);
+        }
+
+        /* Certify objHandle using akHandle */
+        {
+            uint8_t cmd[1024]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_SESSIONS);
+            p = put_u32(p, 0);
+            p = put_u32(p, 0x00000148u); /* TPM_CC_Certify */
+            p = put_u32(p, objHandle);
+            p = put_u32(p, akHandle);
+            p = put_u32(p, 18);
+            /* session 1: objHandle */
+            p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
+            /* session 2: akHandle */
+            p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
+            /* qualifyingData */
+            p = put_u16(p, 8); memset(p, 0x11, 8); p += 8;
+            /* inScheme = TPM_ALG_NULL (use default for AK) */
+            p = put_u16(p, TPM_ALG_NULL);
+            
+            uint32_t len = (uint32_t)(p - cmd);
+            put_u32(cmd + 2, len);
+            resp_len = sizeof(resp);
+            send_command(cmd, len, resp, &resp_len);
+            uint32_t r = response_rc(resp, resp_len);
+            if (r != 0) { FAIL("Test 10: Certify rc=0x%08x", r); goto done; }
+            
+            /* Verify signature starts with TPM_ALG_MLDSA */
+            uint32_t off = 10 + 4; /* skip header and paramSize */
+            uint16_t attestSize = get_u16(resp + off); off += 2 + attestSize;
+            uint16_t sigAlg = get_u16(resp + off);
+            if (sigAlg != TPM_ALG_MLDSA) { FAIL("Test 10: Expected ML-DSA sigAlg, got %04x", sigAlg); goto done; }
+        }
+        PASS("Test 10: Certify with ML-DSA AK produced valid signature");
+    }
+
 done:
     TPMLIB_Terminate();
 

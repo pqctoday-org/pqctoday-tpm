@@ -80,17 +80,19 @@ TPM2_SignSequenceStart(SignSequenceStart_In  *in,
     if (key == NULL)
         return rc + RC_SignSequenceStart_keyHandle;
 
-    seq = PqcSequenceAllocate(/*isSign=*/TRUE);
+    out->sequenceHandle = PqcSequenceAllocate(/*isSign=*/TRUE, &in->auth);
+    if (out->sequenceHandle == TPM_RH_UNASSIGNED)
+        return TPM_RC_OBJECT_MEMORY;
+
+    seq = PqcSequenceFromHandle(out->sequenceHandle);
     if (seq == NULL)
         return TPM_RC_OBJECT_MEMORY;
 
     seq->keyHandle = in->keyHandle;
     seq->keyType   = key->publicArea.type;
     seq->paramSet  = key->publicArea.parameters.mldsaDetail.parameterSet;
-    seq->auth      = in->auth;
     seq->context   = in->context;
 
-    out->sequenceHandle = seq->handle;
     return TPM_RC_SUCCESS;
 }
 #endif  /* CC_SignSequenceStart */
@@ -116,19 +118,21 @@ TPM2_VerifySequenceStart(VerifySequenceStart_In  *in,
     if (in->hint.t.size != 0)
         return TPM_RC_VALUE + RC_VerifySequenceStart_hint;
 
-    seq = PqcSequenceAllocate(/*isSign=*/FALSE);
+    out->sequenceHandle = PqcSequenceAllocate(/*isSign=*/FALSE, &in->auth);
+    if (out->sequenceHandle == TPM_RH_UNASSIGNED)
+        return TPM_RC_OBJECT_MEMORY;
+
+    seq = PqcSequenceFromHandle(out->sequenceHandle);
     if (seq == NULL)
         return TPM_RC_OBJECT_MEMORY;
 
     seq->keyHandle = in->keyHandle;
     seq->keyType   = key->publicArea.type;
     seq->paramSet  = key->publicArea.parameters.mldsaDetail.parameterSet;
-    seq->auth      = in->auth;
     seq->context   = in->context;
     /* hint is zero-length for ML-DSA — store anyway for completeness. */
     seq->hint      = in->hint;
 
-    out->sequenceHandle = seq->handle;
     return TPM_RC_SUCCESS;
 }
 #endif  /* CC_VerifySequenceStart */
@@ -229,13 +233,35 @@ TPM2_VerifySequenceComplete(VerifySequenceComplete_In  *in,
 
     /* §20.3: "If the signature check succeeds, then the TPM will produce a
      * TPMT_TK_VERIFIED. ... The ticket's tag is TPM_ST_MESSAGE_VERIFIED."
-     * Phase 4 V0: hmac size = 0 (matches NULL-hierarchy ticket shape per
-     * §20.3 narrative). HMAC binding for non-NULL hierarchies is Phase 4.1
-     * follow-up — it's a pure auth-chain feature; the spec contract for
-     * the ticket's *tag* and *hierarchy* fields is met here. */
+     * Phase 4.1 V0 HMAC binding for non-NULL hierarchies. */
     out->validation.tag       = TPM_ST_MESSAGE_VERIFIED;
     out->validation.hierarchy = GetHierarchy(in->keyHandle);
-    out->validation.hmac.t.size = 0;
+    
+    if (out->validation.hierarchy == TPM_RH_NULL || key->publicArea.nameAlg == TPM_ALG_NULL) {
+        out->validation.hmac.t.size = 0;
+    } else {
+        TPM2B_PROOF proof;
+        HMAC_STATE  hmacState;
+        
+        rc = HierarchyGetProof(out->validation.hierarchy, &proof);
+        if(rc != TPM_RC_SUCCESS) {
+            PqcSequenceFlush(in->sequenceHandle);
+            return rc;
+        }
+
+        out->validation.hmac.t.size =
+            CryptHmacStart2B(&hmacState, CONTEXT_INTEGRITY_HASH_ALG, &proof.b);
+        MemorySet(proof.b.buffer, 0, proof.b.size);
+
+        // tag
+        CryptDigestUpdateInt(&hmacState, sizeof(TPM_ST), out->validation.tag);
+        // hierarchy (replaces digest per V1.85)
+        CryptDigestUpdateInt(&hmacState, sizeof(TPMI_RH_HIERARCHY), out->validation.hierarchy);
+        // key name
+        CryptDigestUpdate2B(&hmacState.hashState, &key->name.b);
+        
+        CryptHmacEnd2B(&hmacState, &out->validation.hmac.b);
+    }
 
     PqcSequenceFlush(in->sequenceHandle);
     return TPM_RC_SUCCESS;

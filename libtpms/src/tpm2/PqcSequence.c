@@ -8,70 +8,80 @@
 
 #include "Tpm.h"
 #include "PqcSequence_fp.h"
+#include "Object_spt_fp.h"
 
 #if (ALG_MLDSA || ALG_HASH_MLDSA) && (CC_SignSequenceStart || CC_SignSequenceComplete \
                                        || CC_VerifySequenceStart || CC_VerifySequenceComplete)
 
-/* Static slot pool; kept module-private so the only ways to mutate state are
- * the Allocate / Flush / Update functions exported below. */
-static PQC_SEQ_STATE s_pqcSequences[MAX_PQC_SEQ_OBJECTS];
-
-/* Sequence handles are recycled — the next-allocate counter wraps around. */
-static UINT16 s_nextSeqIndex;
-
 LIB_EXPORT void
 PqcSequenceStartup(void)
 {
-    MemorySet(s_pqcSequences, 0, sizeof(s_pqcSequences));
-    s_nextSeqIndex = 0;
+    /* No longer a private pool, managed by core object system */
 }
 
-LIB_EXPORT PQC_SEQ_STATE *
-PqcSequenceAllocate(BOOL isSign)
+LIB_EXPORT TPM_HANDLE
+PqcSequenceAllocate(BOOL isSign, TPM2B_AUTH *auth)
 {
-    UINT16 i;
-    for (i = 0; i < MAX_PQC_SEQ_OBJECTS; i++) {
-        if (!s_pqcSequences[i].occupied) {
-            PQC_SEQ_STATE *seq = &s_pqcSequences[i];
-            MemorySet(seq, 0, sizeof(*seq));
-            seq->occupied = TRUE;
-            seq->isSign   = isSign;
-            seq->handle   = (TPM_HANDLE)(PQC_SEQ_HANDLE_BASE + i);
-            return seq;
-        }
+    TPM_HANDLE newHandle;
+    HASH_OBJECT *hashObject;
+
+    hashObject = (HASH_OBJECT*)ObjectAllocateSlot(&newHandle);
+    if (hashObject == NULL)
+        return TPM_RH_UNASSIGNED; /* Out of memory */
+
+    MemorySet(hashObject, 0, sizeof(HASH_OBJECT));
+    
+    hashObject->attributes.occupied = SET;
+    hashObject->attributes.pqcSeq = SET;
+    
+    /* Initialize type and nameAlg to TPM_ALG_NULL so unmarshaling succeeds */
+    hashObject->type = TPM_ALG_NULL;
+    hashObject->nameAlg = TPM_ALG_NULL;
+
+    /* Ensure other sequence attributes are CLEAR */
+    hashObject->attributes.hmacSeq = CLEAR;
+    hashObject->attributes.hashSeq = CLEAR;
+    hashObject->attributes.eventSeq = CLEAR;
+
+    if (auth != NULL) {
+        hashObject->auth = *auth;
     }
-    return NULL;  /* TPM_RC_OBJECT_MEMORY at caller */
+
+    hashObject->state.pqcState.isSign = isSign;
+
+    return newHandle;
 }
 
 LIB_EXPORT BOOL
 PqcSequenceIsHandle(TPM_HANDLE handle)
 {
-    return handle >= PQC_SEQ_HANDLE_BASE && handle <= PQC_SEQ_HANDLE_MAX;
+    OBJECT *obj;
+    if (HandleGetType(handle) != TPM_HT_TRANSIENT)
+        return FALSE;
+    if (!IsObjectPresent(handle))
+        return FALSE;
+    obj = HandleToObject(handle);
+    return (obj->attributes.pqcSeq == SET);
 }
 
 LIB_EXPORT PQC_SEQ_STATE *
 PqcSequenceFromHandle(TPM_HANDLE handle)
 {
-    UINT16 idx;
+    HASH_OBJECT *hashObject;
+
     if (!PqcSequenceIsHandle(handle))
         return NULL;
-    idx = (UINT16)(handle - PQC_SEQ_HANDLE_BASE);
-    if (idx >= MAX_PQC_SEQ_OBJECTS)
-        return NULL;
-    return s_pqcSequences[idx].occupied ? &s_pqcSequences[idx] : NULL;
+
+    hashObject = (HASH_OBJECT*)HandleToObject(handle);
+    return &hashObject->state.pqcState;
 }
 
 LIB_EXPORT void
 PqcSequenceFlush(TPM_HANDLE handle)
 {
-    PQC_SEQ_STATE *seq = PqcSequenceFromHandle(handle);
-    if (seq) {
-        /* Zero the whole struct — buffer may carry secret-adjacent data
-         * (the message being signed/verified is not necessarily secret,
-         * but defensive zeroing is cheap). */
-        MemorySet(seq, 0, sizeof(*seq));
+    if (PqcSequenceIsHandle(handle)) {
+        FlushObject(handle);
     }
-    (void)s_nextSeqIndex; /* reserved for future round-robin allocation */
 }
 
 LIB_EXPORT TPM_RC

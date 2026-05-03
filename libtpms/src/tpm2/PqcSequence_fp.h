@@ -31,31 +31,13 @@
 #define PQC_SEQ_HANDLE_BASE   ((TPM_HANDLE)0x80FF0000)
 #define PQC_SEQ_HANDLE_MAX    ((TPM_HANDLE)0x80FF00FF)
 
-/* Per-sequence state — kept small enough for static allocation. The buffer
- * holds the message accumulated across SequenceUpdate calls (verify only;
- * for sign, the message arrives in a single SignSequenceComplete buffer). */
-#define MAX_PQC_SEQ_BUFFER    (4 * 1024)
-#define MAX_PQC_SEQ_OBJECTS   4
-
-typedef struct {
-    BOOL                    occupied;
-    BOOL                    isSign;          /* TRUE=sign, FALSE=verify */
-    TPM_HANDLE              handle;          /* sequence handle returned to caller */
-    TPM_HANDLE              keyHandle;       /* bound at Start time; Complete must match */
-    TPM_ALG_ID              keyType;         /* TPM_ALG_MLDSA only in V0 */
-    TPMI_MLDSA_PARAMETER_SET paramSet;
-    TPM2B_AUTH              auth;
-    TPM2B_SIGNATURE_HINT    hint;            /* verify only */
-    TPM2B_SIGNATURE_CTX     context;
-    UINT32                  bufferUsed;
-    BYTE                    buffer[MAX_PQC_SEQ_BUFFER];
-} PQC_SEQ_STATE;
+/* PQC_SEQ_STATE is defined in Global.h so it can be embedded in HASH_OBJECT */
 
 /* Module lifecycle */
 LIB_EXPORT void   PqcSequenceStartup(void);
 
 /* Slot allocation / lookup */
-LIB_EXPORT PQC_SEQ_STATE *PqcSequenceAllocate(BOOL isSign);
+LIB_EXPORT TPM_HANDLE PqcSequenceAllocate(BOOL isSign, TPM2B_AUTH *auth);
 LIB_EXPORT PQC_SEQ_STATE *PqcSequenceFromHandle(TPM_HANDLE handle);
 LIB_EXPORT BOOL           PqcSequenceIsHandle(TPM_HANDLE handle);
 LIB_EXPORT void           PqcSequenceFlush(TPM_HANDLE handle);

@@ -197,10 +197,12 @@ typedef struct
     //        parent
     unsigned external : 1;     //17) SET when the object is loaded with
     //    TPM2_LoadExternal();
-    unsigned reserved : 14;    //18-31)			/* libtpms added */
+    unsigned pqcSeq   : 1;     //18) SET for a PQC sequence object
+    unsigned reserved : 13;    //19-31)			/* libtpms added */
 #endif							/* libtpms added */
 #if BIG_ENDIAN_TPM == YES				/* libtpms added begin */
-    unsigned reserved : 14;      //18-31)
+    unsigned reserved : 13;      //19-31)
+    unsigned pqcSeq : 1;         //18) SET for a PQC sequence object
     unsigned external : 1;       //17) SET when the object is loaded with
     unsigned derivation : 1;     //16) SET when the key is a derivation
     unsigned occupied : 1;       //15) SET when the slot is occupied.
@@ -279,6 +281,20 @@ typedef struct OBJECT
 
 //*** HASH_OBJECT Structure
 // This structure holds a hash sequence object or an event sequence object.
+
+#define MAX_PQC_SEQ_BUFFER    (4 * 1024)
+
+typedef struct {
+    BOOL                    isSign;          /* TRUE=sign, FALSE=verify */
+    TPM_HANDLE              keyHandle;       /* bound at Start time; Complete must match */
+    TPM_ALG_ID              keyType;         /* TPM_ALG_MLDSA only in V0 */
+    TPMI_MLDSA_PARAMETER_SET paramSet;
+    TPM2B_SIGNATURE_HINT    hint;            /* verify only */
+    TPM2B_SIGNATURE_CTX     context;
+    UINT32                  bufferUsed;
+    BYTE                    buffer[MAX_PQC_SEQ_BUFFER];
+} PQC_SEQ_STATE;
+
 //
 // The first four components of this structure are manually set to be the same as
 // the first four components of the object structure. This prevents the object
@@ -299,6 +315,9 @@ typedef struct HASH_OBJECT
     {
 	HASH_STATE hashState[HASH_COUNT];
 	HMAC_STATE hmacState;
+#if ALG_MLDSA || ALG_HASH_MLDSA
+    PQC_SEQ_STATE pqcState;
+#endif
     } state;
 } HASH_OBJECT;
 

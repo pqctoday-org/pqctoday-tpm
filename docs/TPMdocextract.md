@@ -679,3 +679,42 @@ paramSize (4)
 P1: sharedSecret (TPM2B_SHARED_SECRET)  // {size(2), buffer[size]}
 authArea (session response)
 ```
+
+---
+
+## 14. TPMA_ALGORITHM (Part 2 §8.2 Table 35)
+
+Definition of `TPMA_ALGORITHM` bits:
+- **Bit 0 (asymmetric):** SET (1) if an asymmetric algorithm.
+- **Bit 1 (symmetric):** SET (1) if a symmetric block cipher.
+- **Bit 2 (hash):** SET (1) if a hash algorithm.
+- **Bit 3 (object):** SET (1) if an algorithm that may be used as an object type.
+- **Bit 8 (signing):** SET (1) if a signing algorithm.
+- **Bit 9 (encrypting):** SET (1) if an encryption/decryption algorithm.
+- **Bit 10 (method):** SET (1) if a method such as a key derivative function (KDF).
+
+---
+
+## 15. Attestation Commands and Structures (Part 3 & Part 2)
+
+### TPM2_Certify (Part 3 §18.2)
+Proves that an object with a specific Name is loaded in the TPM.
+- **Action:** If `signHandle` is `TPM_RH_NULL`, returns a `TPMS_ATTEST` structure and a NULL Signature. Otherwise, signs the `TPMS_ATTEST` using the key in `signHandle`.
+
+### TPM2_Quote (Part 3 §18.4)
+Quotes PCR values.
+- **Action:** Hashes the selected PCRs and signs a `TPMS_ATTEST` structure containing those PCR values using the `signHandle`.
+
+### TPMS_ATTEST (Part 2 §10.12)
+The structure signed during attestation.
+
+---
+
+## 16. TPM2_VerifySequenceComplete (Part 3 §20.3)
+
+Validates a signature on a message incorporated into a sequence.
+- **Differences from `TPM2_VerifySignature`:**
+  - Verifies with context (requires supporting scheme like `TPM_ALG_MLDSA`).
+  - Verifies a message instead of a digest.
+  - The ticket's tag is `TPM_ST_MESSAGE_VERIFIED`.
+- **Ticket generation:** If successful, returns a `TPMT_TK_VERIFIED`. If the key is in the NULL hierarchy, then `hmac` in the ticket will be the Empty Buffer. For other hierarchies, the `hmac` must be computed over the hierarchy proof.

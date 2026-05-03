@@ -4,7 +4,104 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
-## [Unreleased] — Phase 0 + Phase 2 + Phase 3 + Phase 3.5 + Phase 3.5+1 + Phase 4 + Phase 4.1
+## [Unreleased] — Phase 0 + Phase 2 + Phase 3 + Phase 3.5 + Phase 3.5+1 + Phase 4 + Phase 4.1 + Phase 4.2
+
+### Phase 4.2 — PQC sequences as standard HASH_OBJECTs + Attestation + Algorithm Capability + WASM
+
+#### PQC sequence object model refactor (Entity.c, Global.h, PqcSequence.c/fp.h, Object.c)
+
+PQC sign/verify sequence objects are now first-class transient objects allocated from the standard
+`ObjectAllocateSlot` pool — the same mechanism used by HMAC, hash, and event sequences. This removes
+all vendor sub-range handle hacks and makes auth-area dispatch, `ContextSave/ContextLoad`, and
+`ObjectIsSequence` work through the unmodified core object system.
+
+**Changes:**
+
+- `Global.h`: added `pqcSeq : 1` bit to `OBJECT_ATTRIBUTES` (bit 18, both endian layouts); moved
+  `MAX_PQC_SEQ_BUFFER` define and `PQC_SEQ_STATE` struct definition here (from `PqcSequence_fp.h`)
+  so `HASH_OBJECT.state` can embed a `pqcState` member via the existing `HASH_OBJECT` union.
+- `PqcSequence.c`: removed static 4-slot pool + vendor handle range. `PqcSequenceAllocate` now calls
+  `ObjectAllocateSlot`, sets `attributes.pqcSeq = SET`, and stores auth. `PqcSequenceIsHandle` checks
+  `IsObjectPresent` + `pqcSeq` bit instead of range arithmetic. `PqcSequenceFlush` calls `FlushObject`.
+- `PqcSequence_fp.h`: `PqcSequenceAllocate` return type changed `PQC_SEQ_STATE* → TPM_HANDLE`; `PQC_SEQ_STATE`
+  definition moved to `Global.h`.
+- `Entity.c`: removed four `#if (ALG_MLDSA…) && (CC_SignSequenceStart…)` blocks that special-cased
+  the `0x80FF0000-0x80FF00FF` range in `EntityGetLoadStatus`, `EntityGetAuthValue`, `EntityGetAuthPolicy`,
+  and `EntityGetName`. Standard OBJECT paths now handle PQC sequence handles without special cases.
+- `Object.c`: `ObjectIsSequence` includes `attributes.pqcSeq == SET` so sequence APIs recognise PQC
+  handles the same way they do HMAC/hash/event handles.
+
+#### ContextSave / ContextLoad for PQC sequence objects (ContextCommands.c, NVMarshal.c)
+
+- `ContextCommands.c`: `TPM2_ContextSave` internal buffer enlarged from `sizeof(OBJECT)*2` to
+  `sizeof(HASH_OBJECT)*2 + sizeof(OBJECT)*2` — `HASH_OBJECT` embeds a `MAX_PQC_SEQ_BUFFER`-byte message
+  accumulator that exceeds a plain `OBJECT` in size.
+- `NVMarshal.c`: added `PQC_SEQ_STATE_Marshal` / `PQC_SEQ_STATE_Unmarshal` (static, guarded by
+  `ALG_MLDSA || ALG_HASH_MLDSA`). `HASH_OBJECT_Marshal/Unmarshal` extended with a `pqcSeq == SET`
+  branch that serializes the full PQC state including the accumulated message buffer.
+
+#### Algorithm Capability (AlgorithmCap.c) — Issue #5
+
+Added three entries to the `s_algorithms[]` table so `TPM_CAP_ALGS` GetCapability reports PQC algorithms:
+
+- `TPM_ALG_MLKEM` — `asymmetric | object | encrypting`
+- `TPM_ALG_MLDSA` — `asymmetric | object | signing`
+- `TPM_ALG_HASH_MLDSA` — `asymmetric | object | signing`
+
+#### Attestation with ML-DSA AK (Attest_spt.c, AttestationCommands.c) — Issue #1
+
+`TPM2_Quote` and `TPM2_Certify` now work when the signing key is an ML-DSA or HashML-DSA AK:
+
+- `AttestationCommands.c` `TPM2_Quote`: added Quote-exception — when `inScheme.details.any.hashAlg ==
+  TPM_ALG_NULL` and the signing key is ML-DSA or HASH-MLDSA, fall back to `signObject->publicArea.nameAlg`
+  for PCR digest selection. Without this, Quote rejected the call with `TPM_RCS_SCHEME` because ML-DSA
+  schemes carry `TPM_ALG_NULL` as their hash field (FIPS 204 is message-signing; no pre-hash step).
+- `Attest_spt.c` `SignAttestInfo`: ML-DSA/HASH-MLDSA keys now call `CryptMlDsaSignMessage` directly on
+  the marshalled `attestationData` bytes, bypassing the hash-then-CryptSign path. Standard asymmetric keys
+  continue through the existing `CryptHashBlock` + `CryptSign` path unchanged.
+
+#### Full HMAC binding for non-NULL hierarchies (PqcSequenceCommands.c)
+
+`TPM2_VerifySequenceComplete`: Phase 4.1 produced an empty HMAC for all hierarchies. Phase 4.2 completes
+this per V1.85 §20.3:
+
+- `hierarchy == TPM_RH_NULL` or `nameAlg == TPM_ALG_NULL` → `hmac.size = 0` (unchanged).
+- Non-NULL hierarchy → HMAC over `(tag ‖ hierarchy ‖ keyName)` using `HierarchyGetProof` + `CryptHmacStart2B`
+  / `CryptHmacEnd2B` with `CONTEXT_INTEGRITY_HASH_ALG`. Hierarchy proof is zeroed after use.
+
+#### WASM build — Milestone 1 (wasm/)
+
+Emscripten WASM build of pqctoday-tpm for in-browser TPM 2.0 operations.
+
+- `wasm/wasm_platform.c`: WASM platform layer replacing Cancel.c / Entropy.c / NVMem.c / PowerPlat.c.
+  In-memory NV (s_NV[]), entropy via `RAND_bytes` + `crypto.getRandomValues` fallback, exported JS API:
+  `tpm_wasm_startup`, `tpm_wasm_process`, `tpm_wasm_get_nv`, `tpm_wasm_set_nv`, `tpm_wasm_get_nv_size`.
+- `wasm/CMakeLists.txt`: Emscripten-only; links pqctoday-hsm OpenSSL 3.6.2 `libcrypto.a`; `wasm/config.h`
+  shadow (WITH_TPM1=0) placed first in include path to exclude the tpm12 source tree; force-includes
+  `tpm_library_conf.h` for `TPM_BUFFER_MAX`; all tpm2/ sources minus POSIX files compiled.
+- `wasm/config.h`: config.h shadow with `WITH_TPM1=0`, `WITH_TPM2=1`.
+- `wasm/build.sh`: one-command build; outputs `wasm/dist/pqctpm.js` (26 KB) + `wasm/dist/pqctpm.wasm` (281 KB).
+- `wasm/pqctpm.js`: async JS wrapper — `createPqcTpm({wasmPath, profile, nvState})` factory, `process()`,
+  `getNvState()`, `bytesToB64` / `b64ToBytes` helpers, `getResponseCode`, `buildStartup`.
+- `libtpms/src/tpm2/TpmProfile_Common.h`: `#elif defined __EMSCRIPTEN__` branch added to endianness
+  detection (fixes "Unsupported OS" compile error on wasm32 target).
+
+#### Tests graduated (tests/crossval/src/test_pqc_phase3.c)
+
+- **Test 8** — `TPM2_Quote` with restricted ML-DSA-65 AK: asserts `sigAlg == MLDSA`, `sigSize == 3309 B` (FIPS 204).
+- **Test 9** — `ContextSave → ContextLoad → SignSequenceComplete`: full roundtrip confirming PQC sequence
+  state survives save/load cycle.
+- **Test 10** — `TPM2_Certify` with ML-DSA-65 AK certifying a second ML-DSA-65 object: asserts `sigAlg == MLDSA`.
+
+#### Documentation (docs/TPMdocextract.md)
+
+- Section 14: `TPMA_ALGORITHM` attribute bit definitions (Part 2 §8.2 Table 35).
+- Section 15: `TPM2_Certify` (§18.2), `TPM2_Quote` (§18.4), `TPMS_ATTEST` (§10.12) spec summaries.
+- Section 16: `TPM2_VerifySequenceComplete` (§20.3) — differences from `VerifySignature`, ticket generation.
+
+**README.md**: CI badge + wolfTPM runtime cross-check badge added.
+
+---
 
 ### Phase 4.1 — Full session-based ML-DSA sign/verify roundtrip (V1.85 §17.5/§17.6/§20.3/§20.6)
 

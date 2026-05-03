@@ -61,6 +61,11 @@
 
 #include "Tpm.h"
 #include "Attest_spt_fp.h"
+
+#if ALG_MLDSA || ALG_HASH_MLDSA
+#include "crypto/CryptMlDsa_fp.h"
+#endif
+
 /* 7.2.2 Functions */
 /* 7.2.2.1 FillInAttestInfo() */
 /* Fill in common fields of TPMS_ATTEST structure. */
@@ -150,6 +155,7 @@ SignAttestInfo(
     HASH_STATE              hashState;
     TPM2B_DIGEST            digest;
     TPM_RC                  result;
+    TPM_ALG_ID              hashAlg;
     // Marshal TPMS_ATTEST structure for hash
     buffer = attest->t.attestationData;
     attest->t.size = TPMS_ATTEST_Marshal(certifyInfo, &buffer, NULL);
@@ -160,26 +166,36 @@ SignAttestInfo(
 	}
     else
 	{
-	    TPMI_ALG_HASH           hashAlg;
-	    // Compute hash
-	    hashAlg = scheme->details.any.hashAlg;
-	    // need to set the receive buffer to get something put in it
-	    digest.t.size = sizeof(digest.t.buffer);
-	    digest.t.size = CryptHashBlock(hashAlg, attest->t.size,
-					   attest->t.attestationData,
-					   digest.t.size, digest.t.buffer);
-	    // If there is qualifying data, need to rehash the data
-	    // hash(qualifyingData || hash(attestationData))
-	    if(qualifyingData->t.size != 0)
+#if ALG_MLDSA || ALG_HASH_MLDSA
+	    if(signKey->publicArea.type == TPM_ALG_MLDSA || signKey->publicArea.type == TPM_ALG_HASH_MLDSA)
 		{
-		    CryptHashStart(&hashState, hashAlg);
-		    CryptDigestUpdate2B(&hashState, &qualifyingData->b);
-		    CryptDigestUpdate2B(&hashState, &digest.b);
-		    CryptHashEnd2B(&hashState, &digest.b);
+		    result = CryptMlDsaSignMessage(signature, signKey,
+						   attest->t.attestationData,
+						   attest->t.size, NULL);
 		}
-	    // Sign the hash. A TPM_RC_VALUE, TPM_RC_SCHEME, or
-	    // TPM_RC_ATTRIBUTES error may be returned at this point
-	    result = CryptSign(signKey, scheme, &digest, signature);
+	    else
+#endif
+		{
+		    // Compute hash
+		    hashAlg = scheme->details.any.hashAlg;
+		    // need to set the receive buffer to get something put in it
+		    digest.t.size = sizeof(digest.t.buffer);
+		    digest.t.size = CryptHashBlock(hashAlg, attest->t.size,
+						   attest->t.attestationData,
+						   digest.t.size, digest.t.buffer);
+		    // If there is qualifying data, need to rehash the data
+		    // hash(qualifyingData || hash(attestationData))
+		    if(qualifyingData->t.size != 0)
+			{
+			    CryptHashStart(&hashState, hashAlg);
+			    CryptDigestUpdate2B(&hashState, &qualifyingData->b);
+			    CryptDigestUpdate2B(&hashState, &digest.b);
+			    CryptHashEnd2B(&hashState, &digest.b);
+			}
+		    // Sign the hash. A TPM_RC_VALUE, TPM_RC_SCHEME, or
+		    // TPM_RC_ATTRIBUTES error may be returned at this point
+		    result = CryptSign(signKey, scheme, &digest, signature);
+		}
 	    // Since the clock is used in an attestation, the state in NV is no longer
 	    // "orderly" with respect to the data in RAM if the signature is valid
 	    if(result == TPM_RC_SUCCESS)

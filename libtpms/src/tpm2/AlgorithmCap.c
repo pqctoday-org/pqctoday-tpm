@@ -151,6 +151,15 @@ static const ALGORITHM    s_algorithms[] =
 #if ALG_ECC
 	{TPM_ALG_ECC,            TPMA_ALGORITHM_INITIALIZER(1, 0, 0, 1, 0, 0, 0, 0, 0)},
 #endif
+#if ALG_MLKEM
+	{TPM_ALG_MLKEM,          TPMA_ALGORITHM_INITIALIZER(1, 0, 0, 1, 0, 0, 1, 0, 0)},
+#endif
+#if ALG_MLDSA
+	{TPM_ALG_MLDSA,          TPMA_ALGORITHM_INITIALIZER(1, 0, 0, 1, 0, 1, 0, 0, 0)},
+#endif
+#if ALG_HASH_MLDSA
+	{TPM_ALG_HASH_MLDSA,     TPMA_ALGORITHM_INITIALIZER(1, 0, 0, 1, 0, 1, 0, 0, 0)},
+#endif
 	{TPM_ALG_SYMCIPHER,      TPMA_ALGORITHM_INITIALIZER(0, 0, 0, 1, 0, 0, 0, 0, 0)},
 #if ALG_CAMELLIA
 	{TPM_ALG_CAMELLIA,       TPMA_ALGORITHM_INITIALIZER(0, 1, 0, 0, 0, 0, 0, 0, 0)},
