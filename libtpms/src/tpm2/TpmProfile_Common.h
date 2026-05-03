@@ -106,6 +106,9 @@
  #endif
 #elif defined __APPLE__
  #define  BIG_ENDIAN_TPM       NO
+#elif defined __EMSCRIPTEN__
+ /* Emscripten/WASM target is always little-endian */
+ #define  BIG_ENDIAN_TPM       NO
 #else
  #error Unsupported OS
 #endif                                             /* libtpms added end */
