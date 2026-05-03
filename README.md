@@ -17,8 +17,9 @@ Fork of [libtpms v0.10.2](https://github.com/stefanberger/libtpms) + [swtpm v0.1
 | **3 — Key Hierarchy** | ML-KEM EK + ML-DSA AK provisioning, `MakeCredential`/`ActivateCredential` via ML-KEM, `CryptSelectSignScheme` for ML-DSA, self-signed X.509 PQC EK certs | ✅ Complete |
 | **3.5 — V1.85 RC4 wire-format conformance** | `TPMS_MLDSA_PARMS.allowExternalMu` + `TPMS_MLKEM_PARMS.symmetric` (Tables 229/231); `TPM2_Encapsulate` response order (Table 61); `TPM_RC_EXT_MU` + `TPM_RC_ONE_SHOT_SIGNATURE` (§6.6.4); `TPMA_ML_PARAMETER_SET` capability (Table 46) | ✅ Complete |
 | **4 — Sequence Commands** | `TPM2_SignSequenceStart/Complete`, `TPM2_VerifySequenceStart/Complete` (V1.85 §17.5/§17.6/§20.3/§20.6) — full bilateral cross-impl roundtrip | ✅ Complete |
-| 4.x — Attestation | `TPM2_Quote`, `TPM2_Certify`, PCR banks with ML-DSA AK | 🔲 Not started |
-| 5 — WASM | Emscripten build, browser API, PQC Today integration | 🔲 Not started |
+| **4.2 — Attestation + Object Model** | `TPM2_Quote` + `TPM2_Certify` with ML-DSA AK; PQC sequences as standard HASH_OBJECTs; `ContextSave`/`ContextLoad` for PQC sequences; Algorithm Capability table; full HMAC binding | ✅ Complete |
+| **5 — WASM Milestone 1** | Emscripten build (`pqctpm.js` + `pqctpm.wasm`); in-browser TPM 2.0 startup + process + NV persistence API | ✅ Complete |
+| 5.x — WASM Integration | npm package, PQC Today browser integration, TypeScript wrapper | 🔲 Not started |
 
 **What works today:**
 
@@ -26,12 +27,17 @@ Fork of [libtpms v0.10.2](https://github.com/stefanberger/libtpms) + [swtpm v0.1
 - `TPM2_Encapsulate` / `TPM2_Decapsulate` — ML-KEM key encapsulation; `sharedSecret` first per V1.85 §14.10 Table 61; FIPS 203 byte-exact sizes (768 / 1088 / 1568 B ciphertext for 512 / 768 / 1024)
 - `TPM2_SignDigest` / `TPM2_VerifyDigestSignature` — ML-DSA / HashML-DSA digest sign+verify with `TPMA_OBJECT.restricted` rejection (§29.2.1) and `allowExternalMu` enforcement (§12.2.3.6)
 - `TPM2_SignSequenceStart` / `TPM2_SignSequenceComplete` — full message ML-DSA signing; FIPS 204 byte-exact signatures (2420 / 3309 / 4627 B for 44 / 65 / 87); V1.85 §17.5/§20.6
-- `TPM2_VerifySequenceStart` / `TPM2_SequenceUpdate` / `TPM2_VerifySequenceComplete` — streaming ML-DSA verify; emits `TPMT_TK_VERIFIED` with tag `TPM_ST_MESSAGE_VERIFIED` per §20.3 Table 119
+- `TPM2_VerifySequenceStart` / `TPM2_SequenceUpdate` / `TPM2_VerifySequenceComplete` — streaming ML-DSA verify; emits `TPMT_TK_VERIFIED` with tag `TPM_ST_MESSAGE_VERIFIED` per §20.3 Table 119; full HMAC binding for non-NULL hierarchies
+- `TPM2_Quote` with restricted ML-DSA-65 AK — Quote-exception allows `hashAlg=NULL` ML-DSA schemes; falls back to AK's nameAlg for PCR digest; signature 3309 B (FIPS 204)
+- `TPM2_Certify` with ML-DSA AK — certifies any loaded object; `SignAttestInfo` signs attestation data directly via `CryptMlDsaSignMessage` (no external pre-hash)
+- `TPM2_ContextSave` / `TPM2_ContextLoad` for ML-DSA sign/verify sequence handles — PQC sequences are now standard HASH_OBJECTs with full NV marshal/unmarshal
+- `TPM2_GetCapability(TPM_CAP_ALGS)` — reports `TPM_ALG_MLKEM`, `TPM_ALG_MLDSA`, `TPM_ALG_HASH_MLDSA` with correct `TPMA_ALGORITHM` attribute bits
 - `MakeCredential` / `ActivateCredential` transport via ML-KEM-768 (`CryptSecretEncrypt` / `Decrypt` ML-KEM path)
 - `TPM2_GetCapability(TPM_PT_ML_PARAMETER_SETS)` — returns `TPMA_ML_PARAMETER_SET` per V1.85 §8.6 Table 22 + §8.7 Table 46
 - ML-KEM-768 EK + ML-DSA-65 AK auto-provisioned by `swtpm_setup` at Docker startup (handles `0x810100A0` / `0x810100A1`)
 - Self-signed X.509 EK certs (`mlkem_ek.cert`, `mldsa_ak.cert`) via `swtpm_setup --create-ek-cert`: ML-KEM-768 / ML-DSA-65 SPKI signed with ephemeral ML-DSA-65 issuer (NIST CSOR OIDs auto-emitted by OpenSSL 3.5+)
 - All classical TPM operations (RSA, ECC, symmetric) work unchanged via the swtpm socket
+- **Browser WASM** (`wasm/dist/pqctpm.js` + `pqctpm.wasm`, 26 KB + 281 KB) — full TPM 2.0 startup, command processing, and NV persistence API; loads in any Emscripten-compatible JS runtime
 - TCG V1.85 RC4 compliance suite: **104 passed, 0 failed, 0 skipped**
 - Cross-implementation runtime cross-check vs **wolfTPM v4.0.0 PR #445**: **29 passed, 0 failed** — bilateral V1.85 conformance for the full PQC matrix proven by two independent crypto stacks (libtpms+OpenSSL 3.6.2 ↔ wolfTPM+wolfCrypt)
 
@@ -144,41 +150,68 @@ Tss2_TctiLdr_Initialize("swtpm:host=localhost,port=2321", &tcti);
 
 ---
 
-## Integrating as a browser WASM module (Phase 5)
+## Integrating as a browser WASM module (Phase 5 — Milestone 1 complete)
 
-> **Status: Not yet built.** The WASM target is Phase 5 of the roadmap. The
-> design is defined in [`docs/wasm-integration.md`](docs/wasm-integration.md).
-> This section describes the intended integration path.
+The emulator compiles to a single `pqctpm.wasm` + `pqctpm.js` pair via
+Emscripten, reusing the same OpenSSL 3.6 WASM build from
+[pqctoday-hsm](https://github.com/pqctoday/pqctoday-hsm). No server required — the
+full TPM 2.0 state machine runs in the browser. Build outputs are in `wasm/dist/`.
 
-The emulator will compile to a single `pqctpm.wasm` + `pqctpm.js` pair via
-Emscripten, reusing the same OpenSSL 3.6 WASM build already proven in
-[softhsmv3](https://github.com/pqctoday/softhsmv3). No server required — the
-full TPM 2.0 state machine runs in the browser.
+### Build the WASM module
 
-### Intended API (TypeScript wrapper)
+```bash
+# Requires Emscripten (emcc 4+) and pqctoday-hsm's OpenSSL WASM build
+# (libcrypto.a at ../pqctoday-hsm/deps/openssl-wasm/lib/ by default)
+cd wasm && ./build.sh
 
-```typescript
-import { PqcTpm } from '@pqctoday/tpm-wasm'
-
-const tpm = await PqcTpm.create()           // load + initialise WASM
-await tpm.startup()                          // TPM2_Startup(CLEAR)
-
-// Create an ML-DSA-65 signing key
-const { handle, publicKey } = await tpm.createPrimary({
-  algorithm: 'ML-DSA-65',
-  hierarchy: 'owner',
-})
-
-// Sign a message
-const signature = await tpm.sign({
-  keyHandle: handle,
-  message:   new TextEncoder().encode('hello world'),
-  scheme:    'ML-DSA',
-})
-
-// Verify
-const ok = await tpm.verify({ publicKey, message, signature })
+# Output:
+# wasm/dist/pqctpm.js    ~26 KB  (Emscripten glue + PqcTpmModule factory)
+# wasm/dist/pqctpm.wasm  ~281 KB
 ```
+
+Override the OpenSSL WASM path:
+
+```bash
+OPENSSL_WASM_DIR=/path/to/openssl-wasm ./wasm/build.sh
+```
+
+### JavaScript API
+
+```javascript
+import { createPqcTpm, getResponseCode, buildStartup, bytesToB64, b64ToBytes, TPM_SU_CLEAR }
+  from './wasm/pqctpm.js'
+
+// Load dist/pqctpm.js first (the Emscripten factory), then:
+const tpm = await createPqcTpm({ wasmPath: '/dist/pqctpm.wasm' })
+
+// Process raw TPM2 commands
+const startup = buildStartup(TPM_SU_CLEAR)   // TPM2_Startup(SU_CLEAR)
+const resp    = tpm.process(startup)
+console.log('RC:', getResponseCode(resp))     // → 0 (TPM_RC_SUCCESS)
+
+// Persist NV state between page loads
+localStorage.setItem('pqctpm-nv', bytesToB64(tpm.getNvState()))
+tpm.terminate()
+
+// Resume from saved state next session
+const saved = localStorage.getItem('pqctpm-nv')
+const tpm2  = await createPqcTpm({
+  nvState: saved ? b64ToBytes(saved) : null,
+  profile: 'default-v1',
+})
+```
+
+### WASM architecture
+
+| File | Purpose |
+| --- | --- |
+| `wasm/wasm_platform.c` | WASM platform layer — replaces `Cancel.c`, `Entropy.c`, `NVMem.c`, `PowerPlat.c`; entropy via `RAND_bytes` + `crypto.getRandomValues` fallback; NV backed by in-memory `s_NV[]` |
+| `wasm/CMakeLists.txt` | Emscripten-only CMake; links pqctoday-hsm OpenSSL 3.6.2 `libcrypto.a`; `wasm/config.h` shadow disables TPM 1.2 |
+| `wasm/config.h` | `config.h` override: `WITH_TPM1=0`, `WITH_TPM2=1` — placed first in include path so the tpm12 source tree is excluded |
+| `wasm/build.sh` | One-command build script |
+| `wasm/pqctpm.js` | Async JS wrapper: `createPqcTpm()`, `process()`, `getNvState()`, helpers |
+| `wasm/dist/pqctpm.js` | Built output — Emscripten glue + `PqcTpmModule` factory |
+| `wasm/dist/pqctpm.wasm` | Built output — WASM binary |
 
 ---
 
@@ -235,13 +268,13 @@ make compliance
 
 | Target | What runs | Expected |
 | --- | --- | --- |
-| `make crossval` | OpenSSL EVP round-trips (ML-DSA-{44,65,87}, ML-KEM-{512,768,1024}), 75 NIST ACVP ML-DSA keyGen KATs, `TPM2_CreatePrimary(MLDSA-65)` end-to-end + `test_pqc_phase3` (Phase 3 + 3.5 + 4 + 4.1) | **7 + 4 + 17 pass** |
+| `make crossval` | OpenSSL EVP round-trips (ML-DSA-{44,65,87}, ML-KEM-{512,768,1024}), 75 NIST ACVP ML-DSA keyGen KATs, `TPM2_CreatePrimary(MLDSA-65)` end-to-end + `test_pqc_phase3` (Phase 3 + 3.5 + 4 + 4.1 + 4.2: Tests 1–10) | **7 + 4 + 20 pass** |
 | `make crossval-softhsm` | All of above + softhsmv3 C++ cross-verify (sign↔verify, encap↔decap) | all pass |
 | `make compliance` | 104-check TCG V1.85 RC4 source-level compliance suite | **104 PASS / 0 FAIL / 0 SKIP** |
 | `make wolftpm-xcheck` | **Cross-implementation runtime check.** Drives wolfTPM v4.0.0 PR #445 (wolfCrypt backend) against our libtpms (OpenSSL 3.6.2) over swtpm socket — asserts FIPS 203/204 byte sizes for ML-KEM-{512,768,1024} Encap+Decap and full ML-DSA-{44,65,87} sign+verify sequence roundtrip with `TPM_ST_MESSAGE_VERIFIED` ticket emission | **29 PASS / 0 FAIL** |
 | `libtpms make check` | Upstream libtpms unit tests | 10/10 pass |
 
-**Total spec-conformance assertions: 150 PASS / 0 FAIL** across all four suites.
+**Total spec-conformance assertions: 153 PASS / 0 FAIL** across all four suites.
 
 `make wolftpm-xcheck` is the strongest spec-conformance test — two completely independent V1.85 implementations (libtpms+OpenSSL 3.6.2 ↔ wolfTPM v4.0.0+wolfCrypt) agreeing on the byte-on-the-wire layout for the full PQC algorithm matrix. Setup is one-shot: `make docker-xcheck` builds an image with pinned wolfSSL + wolfTPM (≈4 min); subsequent `make wolftpm-xcheck` runs in seconds.
 
@@ -437,42 +470,65 @@ pqctoday-tpm/
 │       │                             #  TPMU_TK_VERIFIED_META, updated TPMT_TK_VERIFIED
 │       ├── TpmAlgorithmDefines.h     # +FIPS 203/204 key/sig/ct size constants,
 │       │                             #  MAX_SIGNATURE_HINT_SIZE, TPM_CC_* V1.85 codes
-│       ├── TpmProfile_CommandList.h  # +CC_Encapsulate/Decapsulate/SignDigest/
-│       │                             #  VerifyDigestSignature/Sequence* guards
-│       ├── TpmProfile_Common.h       # ALG_MLKEM/MLDSA/HASH_MLDSA = ALG_YES
+│       ├── TpmProfile_CommandList.h  # +CC guards for all 8 V1.85 commands
+│       ├── TpmProfile_Common.h       # ALG_MLKEM/MLDSA/HASH_MLDSA = ALG_YES;
+│       │                             #  __EMSCRIPTEN__ endianness branch (WASM)
+│       ├── Global.h                  # +pqcSeq attr bit; PQC_SEQ_STATE + MAX_PQC_SEQ_BUFFER
+│       ├── AlgorithmCap.c            # +ML-KEM/ML-DSA/HASH-MLDSA TPMA_ALGORITHM entries
+│       ├── Attest_spt.c              # +ML-DSA path in SignAttestInfo (CryptMlDsaSignMessage)
+│       ├── AttestationCommands.c     # +Quote-exception: hashAlg=NULL ML-DSA → nameAlg
+│       ├── ContextCommands.c         # +enlarged objbuf for HASH_OBJECT ContextSave
 │       ├── RuntimeCommands.c         # +V1.85 COMMAND() entries
 │       ├── CommandDispatchData.h     # +8 V1.85 command descriptors + dispatch types
 │       ├── CryptUtil.c               # +ML-DSA/ML-KEM dispatch in Sign/Verify
+│       ├── Entity.c                  # vendor sub-range hacks removed (standard OBJECT paths)
 │       ├── Marshal.c                 # +PQC TPMU marshal, V1.85 new types
 │       ├── Unmarshal.c               # +PQC TPMU unmarshal, V1.85 new types
-│       ├── NVMarshal.c               # +PQC NV sensitive marshal
+│       ├── NVMarshal.c               # +PQC_SEQ_STATE marshal; HASH_OBJECT pqcSeq branch
+│       ├── Object.c                  # +pqcSeq in ObjectIsSequence
 │       ├── Object_spt.c              # +PQC scheme checks
 │       │
-│       ├── PqcKemCommands.c          # NEW — TPM2_Encapsulate, TPM2_Decapsulate
-│       ├── PqcMlDsaCommands.c        # NEW — TPM2_SignDigest, TPM2_VerifyDigestSignature,
-│       │                             #        Phase 4 sequence stubs
-│       ├── Encapsulate_fp.h          # NEW — Encapsulate In/Out structs
-│       ├── Decapsulate_fp.h          # NEW — Decapsulate In/Out structs
-│       ├── SignDigest_fp.h           # NEW — SignDigest In/Out structs
-│       ├── VerifyDigestSignature_fp.h# NEW — VerifyDigestSignature In/Out structs
-│       ├── SignSequenceStart_fp.h    # NEW — Phase 4 stub
-│       ├── SignSequenceComplete_fp.h # NEW — Phase 4 stub
-│       ├── VerifySequenceStart_fp.h  # NEW — Phase 4 stub
-│       ├── VerifySequenceComplete_fp.h# NEW — Phase 4 stub
+│       ├── PqcKemCommands.c          # TPM2_Encapsulate, TPM2_Decapsulate
+│       ├── PqcMlDsaCommands.c        # TPM2_SignDigest, TPM2_VerifyDigestSignature
+│       ├── PqcSequence.c             # PQC sequence handle allocate/lookup/flush
+│       │                             #  (now via ObjectAllocateSlot + pqcSeq attr)
+│       ├── PqcSequenceCommands.c     # TPM2_SignSequenceStart/Complete,
+│       │                             #  TPM2_VerifySequenceStart/Complete;
+│       │                             #  full HMAC binding for non-NULL hierarchies
+│       ├── PqcSequence_fp.h          # PqcSequenceAllocate returns TPM_HANDLE;
+│       │                             #  PQC_SEQ_STATE defined in Global.h
+│       ├── Encapsulate_fp.h          # In/Out structs
+│       ├── Decapsulate_fp.h
+│       ├── SignDigest_fp.h
+│       ├── VerifyDigestSignature_fp.h
+│       ├── SignSequenceStart_fp.h
+│       ├── SignSequenceComplete_fp.h
+│       ├── VerifySequenceStart_fp.h
+│       ├── VerifySequenceComplete_fp.h
 │       │
 │       └── crypto/openssl/
-│           ├── CryptMlDsa.c          # ML-DSA via OpenSSL EVP; ctx/hint forwarding
+│           ├── CryptMlDsa.c          # ML-DSA via OpenSSL EVP; ctx/hint + message-sign helpers
 │           ├── CryptMlKem.c          # ML-KEM via OpenSSL EVP
-│           └── CryptMlDsa_fp.h       # Updated: CryptMlDsaSign/Validate accept ctx+hint
+│           └── CryptMlDsa_fp.h       # CryptMlDsaSign/Validate/SignMessage/ValidateMessage
+├── wasm/                             # Emscripten WASM build (Phase 5 Milestone 1)
+│   ├── wasm_platform.c               # WASM platform layer (Cancel/Entropy/NV/Power)
+│   ├── CMakeLists.txt                # Emscripten-only CMake
+│   ├── config.h                      # config.h shadow: WITH_TPM1=0, WITH_TPM2=1
+│   ├── build.sh                      # One-command build script
+│   ├── pqctpm.js                     # Async JS wrapper (createPqcTpm factory)
+│   └── dist/                         # Build outputs
+│       ├── pqctpm.js                 # Emscripten glue + PqcTpmModule factory (~26 KB)
+│       └── pqctpm.wasm               # WASM binary (~281 KB)
 ├── swtpm/                            # swtpm v0.10.1 (squashed subtree, minimal changes)
 ├── patches/                          # Quilt patches for upstream submission
 ├── tests/
 │   ├── compliance/
-│   │   └── v185_compliance.sh        # 83-check TCG V1.85 compliance suite
+│   │   └── v185_compliance.sh        # 104-check TCG V1.85 compliance suite
 │   └── crossval/
 │       ├── src/
 │       │   ├── test_pqc_crossval.c   # OpenSSL EVP round-trips + NIST ACVP KAT driver
 │       │   ├── test_tpm_roundtrip.c  # TPM2_CreatePrimary(MLDSA-65) end-to-end
+│       │   ├── test_pqc_phase3.c     # Phase 3–4.2 harness (Tests 1–10)
 │       │   ├── kat_loader.c          # NIST ACVP JSON parser
 │       │   └── p11_helper.c          # PKCS#11 dlopen helper (softhsmv3)
 │       └── vectors/
@@ -483,8 +539,9 @@ pqctoday-tpm/
 ├── docs/
 │   ├── architecture.md               # System design, data flows, file map
 │   ├── implementation-plan.md        # Phased roadmap with code-level detail
+│   ├── TPMdocextract.md              # Curated spec extracts (§8, §10–§12, §14, §17–§20, §29)
 │   ├── v185-compliance.md            # Command compliance matrix
-│   ├── wasm-integration.md           # Browser build + PQC Today API
+│   ├── wasm-integration.md           # Browser build + PQC Today API (Phase 5)
 │   └── standards/                    # TCG V1.85 RC4 Parts 0-3 (PDF)
 └── Makefile                          # crossval / compliance / docker-dev targets
 ```
@@ -516,11 +573,12 @@ pqctoday-tpm/
   field (FIPS 204 randomness override `rnd`) is accepted and silently ignored —
   OpenSSL 3.6 does not expose an external rnd injection API.
 
-- **Streaming sequence commands**: `TPM2_SignSequenceStart/Complete` and
-  `TPM2_VerifySequenceStart/Complete` return `TPM_RC_COMMAND_CODE` until Phase 4
-  adds `MLDSA_SEQUENCE_OBJECT` (a handle-tracked struct holding a live
-  `EVP_MD_CTX*` across command boundaries). wolfTPM PR #445 has the same
-  architectural gap for identical reasons.
+- **Streaming sequence objects**: PQC sign/verify sequence handles are standard
+  transient objects allocated from `ObjectAllocateSlot` (same pool as HMAC/hash/event
+  sequences). The `pqcSeq` attribute bit in `OBJECT_ATTRIBUTES` distinguishes them.
+  `HASH_OBJECT.state.pqcState` holds the `PQC_SEQ_STATE` (key handle, accumulated
+  message buffer, isSign flag). `ContextSave` / `ContextLoad` work unchanged because
+  `HASH_OBJECT_Marshal/Unmarshal` now includes the `pqcSeq` branch.
 
 ---
 
