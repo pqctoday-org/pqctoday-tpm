@@ -124,7 +124,7 @@ jobs:
           tests/crossval/build/test_tpm_roundtrip
           tests/crossval/build/test_pqc_phase3
 
-      - name: Run TCG V1.85 RC4 compliance suite (target: 100/0/0)
+      - name: "Run TCG V1.85 RC4 compliance suite (target: 100/0/0)"
         env:
           LD_LIBRARY_PATH: /opt/openssl/lib64:/usr/local/lib
           PATH: /opt/openssl/bin:/usr/local/bin:/usr/bin:/bin
