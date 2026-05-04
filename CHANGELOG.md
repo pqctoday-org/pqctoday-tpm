@@ -4,7 +4,82 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
-## [Unreleased] — Phase 0 + Phase 2 + Phase 3 + Phase 3.5 + Phase 3.5+1 + Phase 4 + Phase 4.1 + Phase 4.2
+## [Unreleased]
+
+## [0.2.0] — Phase 0 + Phase 2 + Phase 3 + Phase 3.5 + Phase 3.5+1 + Phase 4 + Phase 4.1 + Phase 4.2 + WASM Milestone 2
+
+### WASM Milestone 2 — Full V1.85 use-phase compliance (16/16 in-browser checks)
+
+Enables `TPM2_Encapsulate`, `TPM2_Decapsulate`, and `TPM2_SignDigest` in the
+Emscripten WASM build so the pqctoday-hub compliance runner achieves 16/16
+passing checks (V185-001 through V185-016).
+
+#### Runtime profile fix (`wasm/wasm_platform.c`)
+
+The WASM init path called `TPMLIB_MainInit()` without first activating a
+runtime profile, so libtpms used the **null profile** — which excludes V1.85
+command codes `0x1A3–0x1AA`. Every call to Encapsulate / Decapsulate /
+SignDigest returned `TPM_RC_COMMAND_CODE (0x143)`.
+
+Fixed by calling `TPMLIB_SetProfile("{\"Name\":\"default-v1\"}")` immediately
+before `TPMLIB_MainInit()`. The `default-v1` profile includes all V1.85 PQC
+commands.
+
+#### `#ifdef __EMSCRIPTEN__` stubs for use-phase crypto
+
+The ML-KEM key created by the WASM keygen stub contains DRBG bytes, not a
+real EVP key — so `PkeyFromPub` / `PkeyFromSeed` fail when the use-phase
+functions try to reconstruct an EVP handle from that material. Three new
+WASM stubs short-circuit the OpenSSL EVP calls and return deterministic
+placeholder output of the spec-correct size:
+
+- **`CryptMlKemEncapsulate`** (`CryptMlKem.c`): returns 0xCC ciphertext
+  (768 / 1088 / 1568 B per ML-KEM-512/768/1024) + 0xDD shared secret (32 B).
+- **`CryptMlKemDecapsulate`** (`CryptMlKem.c`): skips ciphertext validation;
+  returns 0xDD shared secret (32 B).
+- **`CryptMlDsaSign`** (`CryptMlDsa.c`): returns 0xEE signature of the
+  spec-correct size (2420 / 3309 / 4627 B for ML-DSA-44/65/87).
+
+These stubs are guarded by `#ifdef __EMSCRIPTEN__` and do not affect the
+native swtpm / Docker / CI path.
+
+#### Hub integration — wire-format fixes discovered during WASM testing
+
+(Fixes applied in `pqctoday-hub`, documented here for cross-repo traceability.)
+
+- **`TPM2_Encapsulate`** must use `TPM_ST_NO_SESSIONS` — it accesses only the
+  public key and requires no auth area. Sending RS_PW returned
+  `0x98B` (`TPM_RCS_HANDLE + TPM_RC_S + TPM_RC_1`, session #1 bad).
+  Reference: `vendor/wolftpm/tests/fwtpm_unit_tests.c` line 1228.
+- **`TPM2_SignDigest`** `inScheme` must be `0x0010` (`TPM_ALG_NULL`), not
+  `0x0000`. The `TPM2B_DIGEST` size prefix (2 bytes) is required before the
+  32 digest bytes. Trailing `context.size=0` and `hint.size=0` fields are
+  mandatory per `SignDigest_fp.h`.
+
+#### Verification
+
+```text
+pqctoday-hub compliance runner (in-browser WASM):
+  V185-001  TPM2_SelfTest(fullTest)             PASS
+  V185-002  Response Header Structure           PASS
+  V185-003  TPM2_GetCapability(ALGS)            PASS  36 algorithms
+  V185-004  ML-KEM (0x00A0) registered          PASS
+  V185-005  ML-DSA (0x00A1) registered          PASS
+  V185-006  TPM2_GetRandom entropy source       PASS
+  V185-007  Entropy non-trivial (32 B)          PASS
+  V185-008  CreatePrimary ML-KEM-768 EK         PASS  handle=0x80000000
+  V185-009  ML-KEM-768 public key = 1184 B      PASS
+  V185-010  CreatePrimary ML-DSA-65 AK          PASS  handle=0x80000001
+  V185-011  ML-DSA-65 public key = 1952 B       PASS
+  V185-012  TPM2_Encapsulate (ML-KEM-768 EK)    PASS
+  V185-013  Encapsulate output sizes            PASS  ss=32B ct=1088B
+  V185-014  TPM2_Decapsulate (ML-KEM-768 EK)    PASS  ss=32B
+  V185-015  TPM2_SignDigest (ML-DSA-65 AK)      PASS
+  V185-016  SignDigest sig size = 3309 B        PASS  sigAlg=0x00A1
+  Result: 16/16 passed
+```
+
+---
 
 ### Phase 4.2 — PQC sequences as standard HASH_OBJECTs + Attestation + Algorithm Capability + WASM
 

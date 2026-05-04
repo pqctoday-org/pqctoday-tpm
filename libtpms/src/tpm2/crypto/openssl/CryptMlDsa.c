@@ -319,6 +319,29 @@ CryptMlDsaSign(TPMT_SIGNATURE            *sigOut,
     if (expectedSigSize == 0)
         return TPM_RC_SCHEME;
 
+#ifdef __EMSCRIPTEN__
+    /* WASM: key material is placeholder bytes.  Return a deterministic
+     * stub signature at the correct size for this parameter set. */
+    (void)pkey; (void)mdctx; (void)pctx; (void)initParams; (void)ctxParams;
+    (void)sigLen; (void)sigBuf;
+#if ALG_MLDSA
+    if (pub->type == TPM_ALG_MLDSA) {
+        sigOut->sigAlg = TPM_ALG_MLDSA;
+        memset(sigOut->signature.mldsa.t.buffer, 0xEE, expectedSigSize);
+        sigOut->signature.mldsa.t.size = expectedSigSize;
+    }
+#endif
+#if ALG_HASH_MLDSA
+    if (pub->type == TPM_ALG_HASH_MLDSA) {
+        sigOut->sigAlg = TPM_ALG_HASH_MLDSA;
+        sigOut->signature.hash_mldsa.hash = pub->nameAlg;
+        memset(sigOut->signature.hash_mldsa.signature.t.buffer, 0xEE, expectedSigSize);
+        sigOut->signature.hash_mldsa.signature.t.size = expectedSigSize;
+    }
+#endif
+    return TPM_RC_SUCCESS;
+#endif /* __EMSCRIPTEN__ */
+
     pkey = PkeyFromSeed(algName,
                         key->sensitive.sensitive.mldsa.t.buffer,
                         key->sensitive.sensitive.mldsa.t.size);

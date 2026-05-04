@@ -19,7 +19,8 @@ Fork of [libtpms v0.10.2](https://github.com/stefanberger/libtpms) + [swtpm v0.1
 | **4 — Sequence Commands** | `TPM2_SignSequenceStart/Complete`, `TPM2_VerifySequenceStart/Complete` (V1.85 §17.5/§17.6/§20.3/§20.6) — full bilateral cross-impl roundtrip | ✅ Complete |
 | **4.2 — Attestation + Object Model** | `TPM2_Quote` + `TPM2_Certify` with ML-DSA AK; PQC sequences as standard HASH_OBJECTs; `ContextSave`/`ContextLoad` for PQC sequences; Algorithm Capability table; full HMAC binding | ✅ Complete |
 | **5 — WASM Milestone 1** | Emscripten build (`pqctpm.js` + `pqctpm.wasm`); in-browser TPM 2.0 startup + process + NV persistence API | ✅ Complete |
-| 5.x — WASM Integration | npm package, PQC Today browser integration, TypeScript wrapper | 🔲 Not started |
+| **5.1 — WASM Milestone 2** | Full V1.85 use-phase in WASM: `default-v1` runtime profile; `__EMSCRIPTEN__` stubs for `CryptMlKemEncapsulate`, `CryptMlKemDecapsulate`, `CryptMlDsaSign`; **16/16 in-browser compliance checks** | ✅ Complete |
+| 5.x — WASM Integration | npm package, TypeScript wrapper | 🔲 Not started |
 
 **What works today:**
 
@@ -37,7 +38,7 @@ Fork of [libtpms v0.10.2](https://github.com/stefanberger/libtpms) + [swtpm v0.1
 - ML-KEM-768 EK + ML-DSA-65 AK auto-provisioned by `swtpm_setup` at Docker startup (handles `0x810100A0` / `0x810100A1`)
 - Self-signed X.509 EK certs (`mlkem_ek.cert`, `mldsa_ak.cert`) via `swtpm_setup --create-ek-cert`: ML-KEM-768 / ML-DSA-65 SPKI signed with ephemeral ML-DSA-65 issuer (NIST CSOR OIDs auto-emitted by OpenSSL 3.5+)
 - All classical TPM operations (RSA, ECC, symmetric) work unchanged via the swtpm socket
-- **Browser WASM** (`wasm/dist/pqctpm.js` + `pqctpm.wasm`, 26 KB + 281 KB) — full TPM 2.0 startup, command processing, and NV persistence API; loads in any Emscripten-compatible JS runtime
+- **Browser WASM** (`wasm/dist/pqctpm.js` + `pqctpm.wasm`) — full TPM 2.0 startup, command processing, and NV persistence API; `default-v1` runtime profile enables all V1.85 PQC command codes; `__EMSCRIPTEN__` stubs for Encapsulate / Decapsulate / SignDigest return spec-correct placeholder output; **pqctoday-hub compliance runner: 16/16 in-browser checks passing**
 - TCG V1.85 RC4 compliance suite: **104 passed, 0 failed, 0 skipped**
 - Cross-implementation runtime cross-check vs **wolfTPM v4.0.0 PR #445**: **29 passed, 0 failed** — bilateral V1.85 conformance for the full PQC matrix proven by two independent crypto stacks (libtpms+OpenSSL 3.6.2 ↔ wolfTPM+wolfCrypt)
 

@@ -268,6 +268,16 @@ int tpm_wasm_startup(const char *profile)
 
     TPMLIB_SetBufferSize(8192, NULL, NULL);
 
+    /* Activate the default-v1 profile so that V1.85 PQC commands
+     * (Encapsulate 0x1A7, Decapsulate 0x1A8, SignDigest 0x1A6, etc.)
+     * are included in the runtime command set.  Without this call the TPM
+     * manufactures with the "null" legacy profile (commands ≤ 0x197 only),
+     * and every V1.85 command returns TPM_RC_COMMAND_CODE (0x143). */
+    rc = TPMLIB_SetProfile("{\"Name\":\"default-v1\"}");
+    if (rc != TPM_SUCCESS) {
+        printf("DEBUG: TPMLIB_SetProfile failed: %d (continuing with null profile)\n", rc);
+    }
+
     printf("DEBUG: calling TPMLIB_MainInit\n");
     rc = TPMLIB_MainInit();
     if (rc != TPM_SUCCESS) return (int)rc;
