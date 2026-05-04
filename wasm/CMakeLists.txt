@@ -22,6 +22,8 @@ set(LIBTPMS_SRC "${LIBTPMS_TOP}/tpm2")
 
 # tpm2/ layer — all .c files except those replaced by wasm_platform.c
 file(GLOB ALL_LIBTPMS_TPM2 "${LIBTPMS_SRC}/*.c")
+file(GLOB ALL_LIBTPMS_TPM2_CRYPTO "${LIBTPMS_SRC}/crypto/*.c")
+file(GLOB ALL_LIBTPMS_TPM2_CRYPTO_OSSL "${LIBTPMS_SRC}/crypto/openssl/*.c")
 set(PLATFORM_EXCLUDES
     Cancel.c
     Entropy.c
@@ -29,7 +31,7 @@ set(PLATFORM_EXCLUDES
     PowerPlat.c
 )
 set(LIBTPMS_SOURCES "")
-foreach(f ${ALL_LIBTPMS_TPM2})
+foreach(f ${ALL_LIBTPMS_TPM2} ${ALL_LIBTPMS_TPM2_CRYPTO} ${ALL_LIBTPMS_TPM2_CRYPTO_OSSL})
     get_filename_component(fname "${f}" NAME)
     list(FIND PLATFORM_EXCLUDES "${fname}" idx)
     if(idx EQUAL -1)
@@ -82,6 +84,7 @@ set(CFLAGS_COMMON
     # Enable libtpms callbacks
     -DTPM_LIBTPMS_CALLBACKS
     -DTPM_NV_DISK
+    -DFILE_BACKED_NV=0
 )
 
 # Force-include tpm_library_conf.h for all translation units (defines TPM_BUFFER_MAX etc.)
@@ -102,6 +105,8 @@ set(EXPORTED_FUNCTIONS
     "_TPMLIB_SetProfile"
     "_TPMLIB_WasManufactured"
     "_TPMLIB_SetBufferSize"
+    "_TPMLIB_SetDebugFD"
+    "_TPMLIB_SetDebugLevel"
     "_tpm_wasm_startup"
     "_tpm_wasm_process"
     "_tpm_wasm_get_nv"
@@ -117,6 +122,8 @@ string(REPLACE "," "\",\"" EXPORTED_FUNCTIONS_JSON "${EXPORTED_FUNCTIONS_JSON}")
 set(EM_LINK_FLAGS
     "SHELL:-s WASM=1"
     "SHELL:-s ALLOW_MEMORY_GROWTH=1"
+    "SHELL:-s ALLOW_TABLE_GROWTH=1"
+    "SHELL:-s EMULATE_FUNCTION_POINTER_CASTS=1"
     "SHELL:-s INITIAL_MEMORY=33554432"
     "SHELL:-s MAXIMUM_MEMORY=268435456"
     "SHELL:-s MODULARIZE=1"

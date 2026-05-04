@@ -136,7 +136,9 @@ static TPM_RESULT TPM2_MainInit(void)
                 TPMLIB_LogTPM2Error(
                     "%s: _plat__NVEnable(NULL) failed: %d\n",
                     __func__, ret);
-            if (TPM_Manufacture(TRUE, g_profile) < 0 || g_inFailureMode) {
+            int m_rc = TPM_Manufacture(TRUE, g_profile);
+            printf("DEBUG: TPM_Manufacture returned %d, g_inFailureMode=%d\n", m_rc, g_inFailureMode);
+            if (m_rc < 0 || g_inFailureMode) {
                 TPMLIB_LogTPM2Error("%s: TPM_Manufacture(TRUE) failed or TPM in "
                                     "failure mode\n", __func__);
                 reportedFailureCommand = TRUE;

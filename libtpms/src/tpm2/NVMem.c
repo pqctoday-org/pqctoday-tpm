@@ -329,8 +329,11 @@ LIB_EXPORT int _plat__GetNvReadyState(void)
     int retVal = NV_READY;
 
 #ifdef TPM_LIBTPMS_CALLBACKS
+    printf("DEBUG: TPM_LIBTPMS_CALLBACKS is defined. libtpms_plat__IsNvAvailable() = %d\n", libtpms_plat__IsNvAvailable());
     if (libtpms_plat__IsNvAvailable() == 1)
         return NV_READY;
+#else
+    printf("DEBUG: TPM_LIBTPMS_CALLBACKS is NOT defined!\n");
 #endif /* TPM_LIBTPMS_CALLBACKS */
 
     if(!s_NvIsAvailable)
@@ -339,8 +342,10 @@ LIB_EXPORT int _plat__GetNvReadyState(void)
     else
 	retVal = (s_NvFile == NULL);
 #endif
+    printf("DEBUG: _plat__GetNvReadyState returning %d (s_NvIsAvailable=%d)\n", retVal, s_NvIsAvailable);
     return retVal;
 }
+
 
 //***_plat__NvMemoryRead()
 // Function: Read a chunk of NV memory

@@ -114,9 +114,9 @@ LIB_EXPORT void _plat__NVDisable(void *platParameter, size_t paramSize)
 
 LIB_EXPORT int _plat__GetNvReadyState(void)
 {
-    if (!s_NvIsAvailable)  return 0;
+    if (!s_NvIsAvailable)  return 1; /* NV_WRITEFAILURE */
     if (s_NV_unrecoverable) return -1;
-    return 1;
+    return 0; /* NV_READY */
 }
 
 LIB_EXPORT int _plat__NvMemoryRead(unsigned int startOffset,
@@ -190,6 +190,37 @@ LIB_EXPORT int _plat__NVNeedsManufacture(void)
 /* _plat__Fail is defined in RunCommand.c (longjmp into s_jumpBuffer).
  * No definition here — that file is kept in the WASM build. */
 
+/* ── libtpms state persistence stubs ─────────────────────────────────────── */
+/* tpm_nvfile.c is excluded because it uses POSIX file I/O.
+ * libtpms uses these for its internal state blobs (tpm_volatilestate etc.).
+ * In WASM, we rely on the host calling tpm_wasm_get_nv/set_nv for the raw 
+ * s_NV buffer, so we stub these to pretend no file state exists on load,
+ * and ignore writes. */
+
+#include "tpm_types.h"
+#include "libtpms/tpm_error.h"
+
+TPM_RESULT TPM_NVRAM_LoadData(unsigned char **data, uint32_t *length,
+                              uint32_t tpm_number, const char *name)
+{
+    (void)data; (void)length; (void)tpm_number; (void)name;
+    return TPM_RETRY; /* Forces TPM to initialize as unmanufactured / blank */
+}
+
+TPM_RESULT TPM_NVRAM_StoreData(const unsigned char *data, uint32_t length,
+                               uint32_t tpm_number, const char *name)
+{
+    (void)data; (void)length; (void)tpm_number; (void)name;
+    return TPM_SUCCESS;
+}
+
+TPM_RESULT TPM_NVRAM_DeleteName(uint32_t tpm_number, const char *name,
+                                TPM_BOOL mustExist)
+{
+    (void)tpm_number; (void)name; (void)mustExist;
+    return TPM_SUCCESS;
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * Public WASM API — called from JS via cwrap / ccall
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -215,16 +246,29 @@ int tpm_wasm_startup(const char *profile)
 {
     TPM_RESULT rc;
 
+    struct libtpms_callbacks cbs = {
+        .sizeOfStruct = sizeof(struct libtpms_callbacks),
+        .tpm_nvram_init = NULL,
+        .tpm_nvram_loaddata = TPM_NVRAM_LoadData,
+        .tpm_nvram_storedata = TPM_NVRAM_StoreData,
+        .tpm_nvram_deletename = TPM_NVRAM_DeleteName,
+    };
+    rc = TPMLIB_RegisterCallbacks(&cbs);
+    if (rc != TPM_SUCCESS) {
+        printf("DEBUG: TPMLIB_RegisterCallbacks failed: %d\n", rc);
+        return (int)rc;
+    }
+
+    printf("DEBUG: calling TPMLIB_ChooseTPMVersion\n");
     rc = TPMLIB_ChooseTPMVersion(TPMLIB_TPM_VERSION_2);
-    if (rc != TPM_SUCCESS) return (int)rc;
+    if (rc != TPM_SUCCESS) {
+        printf("DEBUG: TPMLIB_ChooseTPMVersion failed: %d\n", rc);
+        return (int)rc;
+    }
 
     TPMLIB_SetBufferSize(8192, NULL, NULL);
 
-    if (profile && *profile) {
-        rc = TPMLIB_SetProfile(profile);
-        if (rc != TPM_SUCCESS) return (int)rc;
-    }
-
+    printf("DEBUG: calling TPMLIB_MainInit\n");
     rc = TPMLIB_MainInit();
     if (rc != TPM_SUCCESS) return (int)rc;
 

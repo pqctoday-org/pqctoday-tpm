@@ -76,6 +76,96 @@
 # include <openssl/core_names.h>
 #endif
 
+#ifdef __EMSCRIPTEN__
+/* WASM: void-return wrappers for hash and memcpy functions.
+ *
+ * HASH_METHODS stores SHA-2 functions cast to void-return types, but the actual WASM
+ * function table entries keep their real return types (int / void*).  Even with
+ * EMULATE_FUNCTION_POINTER_CASTS=1, binaryen trampolines fire only for argument-count
+ * mismatches; a return-type-only mismatch causes a silent call_indirect type trap on
+ * some Emscripten 5 builds.  These thin wrappers give every slot an exact void return
+ * so the function-table type always matches the call site. */
+
+static void tpmHashStart_SHA256_w(PANY_HASH_STATE s)                                 { SHA256_Init((SHA256_CTX*)s); }
+static void tpmHashData_SHA256_w(PANY_HASH_STATE s, PCBYTE d, size_t n)              { SHA256_Update((SHA256_CTX*)s, d, n); }
+static void tpmHashEnd_SHA256_w(BYTE *b, PANY_HASH_STATE s)                          { SHA256_Final(b, (SHA256_CTX*)s); }
+static void tpmHashCopy_SHA256_w(PANY_HASH_STATE t, PCANY_HASH_STATE f, size_t n)    { memcpy(t, f, n); }
+static void tpmHashExport_SHA256_w(BYTE *t, PCANY_HASH_STATE f, size_t n)            { memcpy(t, f, n); }
+static void tpmHashImport_SHA256_w(PANY_HASH_STATE t, const BYTE *f, size_t n)       { memcpy(t, f, n); }
+#  undef  tpmHashStart_SHA256
+#  undef  tpmHashData_SHA256
+#  undef  tpmHashEnd_SHA256
+#  undef  tpmHashStateCopy_SHA256
+#  undef  tpmHashStateExport_SHA256
+#  undef  tpmHashStateImport_SHA256
+#  define tpmHashStart_SHA256        tpmHashStart_SHA256_w
+#  define tpmHashData_SHA256         tpmHashData_SHA256_w
+#  define tpmHashEnd_SHA256          tpmHashEnd_SHA256_w
+#  define tpmHashStateCopy_SHA256    tpmHashCopy_SHA256_w
+#  define tpmHashStateExport_SHA256  tpmHashExport_SHA256_w
+#  define tpmHashStateImport_SHA256  tpmHashImport_SHA256_w
+
+static void tpmHashStart_SHA384_w(PANY_HASH_STATE s)                                 { SHA384_Init((SHA512_CTX*)s); }
+static void tpmHashData_SHA384_w(PANY_HASH_STATE s, PCBYTE d, size_t n)              { SHA384_Update((SHA512_CTX*)s, d, n); }
+static void tpmHashEnd_SHA384_w(BYTE *b, PANY_HASH_STATE s)                          { SHA384_Final(b, (SHA512_CTX*)s); }
+static void tpmHashCopy_SHA384_w(PANY_HASH_STATE t, PCANY_HASH_STATE f, size_t n)    { memcpy(t, f, n); }
+static void tpmHashExport_SHA384_w(BYTE *t, PCANY_HASH_STATE f, size_t n)            { memcpy(t, f, n); }
+static void tpmHashImport_SHA384_w(PANY_HASH_STATE t, const BYTE *f, size_t n)       { memcpy(t, f, n); }
+#  undef  tpmHashStart_SHA384
+#  undef  tpmHashData_SHA384
+#  undef  tpmHashEnd_SHA384
+#  undef  tpmHashStateCopy_SHA384
+#  undef  tpmHashStateExport_SHA384
+#  undef  tpmHashStateImport_SHA384
+#  define tpmHashStart_SHA384        tpmHashStart_SHA384_w
+#  define tpmHashData_SHA384         tpmHashData_SHA384_w
+#  define tpmHashEnd_SHA384          tpmHashEnd_SHA384_w
+#  define tpmHashStateCopy_SHA384    tpmHashCopy_SHA384_w
+#  define tpmHashStateExport_SHA384  tpmHashExport_SHA384_w
+#  define tpmHashStateImport_SHA384  tpmHashImport_SHA384_w
+
+static void tpmHashStart_SHA512_w(PANY_HASH_STATE s)                                 { SHA512_Init((SHA512_CTX*)s); }
+static void tpmHashData_SHA512_w(PANY_HASH_STATE s, PCBYTE d, size_t n)              { SHA512_Update((SHA512_CTX*)s, d, n); }
+static void tpmHashEnd_SHA512_w(BYTE *b, PANY_HASH_STATE s)                          { SHA512_Final(b, (SHA512_CTX*)s); }
+static void tpmHashCopy_SHA512_w(PANY_HASH_STATE t, PCANY_HASH_STATE f, size_t n)    { memcpy(t, f, n); }
+static void tpmHashExport_SHA512_w(BYTE *t, PCANY_HASH_STATE f, size_t n)            { memcpy(t, f, n); }
+static void tpmHashImport_SHA512_w(PANY_HASH_STATE t, const BYTE *f, size_t n)       { memcpy(t, f, n); }
+#  undef  tpmHashStart_SHA512
+#  undef  tpmHashData_SHA512
+#  undef  tpmHashEnd_SHA512
+#  undef  tpmHashStateCopy_SHA512
+#  undef  tpmHashStateExport_SHA512
+#  undef  tpmHashStateImport_SHA512
+#  define tpmHashStart_SHA512        tpmHashStart_SHA512_w
+#  define tpmHashData_SHA512         tpmHashData_SHA512_w
+#  define tpmHashEnd_SHA512          tpmHashEnd_SHA512_w
+#  define tpmHashStateCopy_SHA512    tpmHashCopy_SHA512_w
+#  define tpmHashStateExport_SHA512  tpmHashExport_SHA512_w
+#  define tpmHashStateImport_SHA512  tpmHashImport_SHA512_w
+
+#  if ALG_SHA1
+static void tpmHashStart_SHA1_w(PANY_HASH_STATE s)                                   { SHA1_Init((SHA_CTX*)s); }
+static void tpmHashData_SHA1_w(PANY_HASH_STATE s, PCBYTE d, size_t n)                { SHA1_Update((SHA_CTX*)s, d, n); }
+static void tpmHashEnd_SHA1_w(BYTE *b, PANY_HASH_STATE s)                            { SHA1_Final(b, (SHA_CTX*)s); }
+static void tpmHashCopy_SHA1_w(PANY_HASH_STATE t, PCANY_HASH_STATE f, size_t n)      { memcpy(t, f, n); }
+static void tpmHashExport_SHA1_w(BYTE *t, PCANY_HASH_STATE f, size_t n)              { memcpy(t, f, n); }
+static void tpmHashImport_SHA1_w(PANY_HASH_STATE t, const BYTE *f, size_t n)         { memcpy(t, f, n); }
+#    undef  tpmHashStart_SHA1
+#    undef  tpmHashData_SHA1
+#    undef  tpmHashEnd_SHA1
+#    undef  tpmHashStateCopy_SHA1
+#    undef  tpmHashStateExport_SHA1
+#    undef  tpmHashStateImport_SHA1
+#    define tpmHashStart_SHA1        tpmHashStart_SHA1_w
+#    define tpmHashData_SHA1         tpmHashData_SHA1_w
+#    define tpmHashEnd_SHA1          tpmHashEnd_SHA1_w
+#    define tpmHashStateCopy_SHA1    tpmHashCopy_SHA1_w
+#    define tpmHashStateExport_SHA1  tpmHashExport_SHA1_w
+#    define tpmHashStateImport_SHA1  tpmHashImport_SHA1_w
+#  endif /* ALG_SHA1 */
+
+#endif /* __EMSCRIPTEN__ */
+
 // Instance each of the hash descriptors based on the implemented algorithms
 FOR_EACH_HASH(HASH_DEF_TEMPLATE)
 // Instance a 'null' def.
