@@ -158,18 +158,30 @@ CryptMlKemGenerateKey(TPMT_PUBLIC    *publicArea,
     seedLen = sizeof(seed);
 
 #ifdef __EMSCRIPTEN__
-    /* WASM: EVP provider dispatch uses mismatched function pointer types that
-     * cause call_indirect type traps.  Emscripten's FILESYSTEM=0 also leaves
-     * OpenSSL RAND_bytes without an entropy source.  Use the TPM's own seeded
-     * DRBG to fill the public key bytes; keys are not cryptographically valid
-     * but are correctly sized for compliance-test purposes. */
+    /* Issue #9: Try the softhsm-wasm PQC bridge first.  If registered,
+     * it runs real ML-KEM keygen via the Rust ml-kem crate.  If not
+     * registered (rc == -1), fall back to DRBG-filled placeholders. */
+    {
+        int brc = pqc_bridge_mlkem_keygen(
+            (uint16_t)paramSet,
+            seed, (uint32_t)seedLen,
+            publicArea->unique.mlkem.t.buffer, (uint32_t)expectedPub,
+            sensitive->sensitive.mlkem.t.buffer, (uint32_t)sizeof(sensitive->sensitive.mlkem.t.buffer));
+        if (brc >= 0) {
+            /* Bridge succeeded — real ML-KEM public key + private key. */
+            publicArea->unique.mlkem.t.size = expectedPub;
+            sensitive->sensitive.mlkem.t.size = (brc > 0) ? (UINT16)seedLen : (UINT16)seedLen;
+            OPENSSL_cleanse(seed, sizeof(seed));
+            return TPM_RC_SUCCESS;
+        }
+        /* brc == -1: no bridge registered — fall through to placeholder path. */
+    }
     if (rand != NULL) {
         if (DRBG_Generate(rand, publicArea->unique.mlkem.t.buffer, expectedPub) != expectedPub) {
             result = TPM_RC_NO_RESULT;
             goto cleanup;
         }
     } else {
-        /* No rand state — fall back to a deterministic expansion of the seed. */
         UINT16 off = 0;
         while (off < expectedPub) {
             UINT16 chunk = (UINT16)(expectedPub - off);
@@ -258,10 +270,20 @@ CryptMlKemEncapsulate(TPM2B_SHARED_SECRET  *sharedSecret,
         return TPM_RC_SCHEME;
 
 #ifdef __EMSCRIPTEN__
-    /* WASM: key material is placeholder bytes (see CryptMlKemGenerateKey stub).
-     * Return correctly-sized stub outputs so the dispatcher produces a
-     * well-formed response.  Values are deterministic zeros — sufficient for
-     * compliance testing and playground demonstration. */
+    /* Issue #9: Try the softhsm-wasm PQC bridge for real encapsulation. */
+    {
+        int brc = pqc_bridge_mlkem_encap(
+            (uint16_t)paramSet,
+            pub->unique.mlkem.t.buffer, (uint32_t)pub->unique.mlkem.t.size,
+            ciphertext->t.buffer, (uint32_t)expectedCt,
+            sharedSecret->t.buffer, (uint32_t)MLKEM_SHARED_SECRET_SIZE);
+        if (brc >= 0) {
+            ciphertext->t.size   = expectedCt;
+            sharedSecret->t.size = MLKEM_SHARED_SECRET_SIZE;
+            return TPM_RC_SUCCESS;
+        }
+    }
+    /* Fallback: placeholder bytes */
     (void)pkey; (void)ctx; (void)ctLen; (void)ssLen;
     memset(ciphertext->t.buffer,   0xCC, expectedCt);
     ciphertext->t.size   = expectedCt;
@@ -322,9 +344,20 @@ CryptMlKemDecapsulate(TPM2B_SHARED_SECRET        *sharedSecret,
     expectedCt = CryptMlKemCtSize(paramSet);
 
 #ifdef __EMSCRIPTEN__
-    /* WASM: key material is placeholder bytes.  Accept any ciphertext size
-     * (the demo builder sends a sized placeholder) and return a deterministic
-     * shared secret — sufficient for compliance testing. */
+    /* Issue #9: Try the softhsm-wasm PQC bridge for real decapsulation. */
+    {
+        int brc = pqc_bridge_mlkem_decap(
+            (uint16_t)paramSet,
+            kemKey->sensitive.sensitive.mlkem.t.buffer,
+            (uint32_t)kemKey->sensitive.sensitive.mlkem.t.size,
+            ciphertext->t.buffer, (uint32_t)ciphertext->t.size,
+            sharedSecret->t.buffer, (uint32_t)MLKEM_SHARED_SECRET_SIZE);
+        if (brc >= 0) {
+            sharedSecret->t.size = MLKEM_SHARED_SECRET_SIZE;
+            return TPM_RC_SUCCESS;
+        }
+    }
+    /* Fallback: placeholder bytes */
     (void)ciphertext; (void)pkey; (void)ctx; (void)ssLen; (void)expectedCt;
     memset(sharedSecret->t.buffer, 0xDD, MLKEM_SHARED_SECRET_SIZE);
     sharedSecret->t.size = MLKEM_SHARED_SECRET_SIZE;

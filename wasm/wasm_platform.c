@@ -222,6 +222,85 @@ TPM_RESULT TPM_NVRAM_DeleteName(uint32_t tpm_number, const char *name,
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+ * PQC Crypto Bridge — EM_JS dispatchers to softhsm-wasm (Issue #9)
+ *
+ * These functions are called from CryptMlKem.c / CryptMlDsa.c inside
+ * #ifdef __EMSCRIPTEN__ blocks.  They invoke JS functions registered on
+ * Module._pqcBridge by the host application (pqctoday-hub tpmBridge.ts).
+ *
+ * Return convention:
+ *   >= 0  success (value = output byte count where applicable)
+ *   -1    no bridge registered — caller falls back to placeholder
+ *   -2    bridge returned an error
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ML-KEM keygen: derive (pk, sk) from a 64-byte seed.
+ * On success, writes pk to pkOut[pkOutMax] and sk to skOut[skOutMax].
+ * Returns pk byte count or negative on error. */
+EM_JS(int, pqc_bridge_mlkem_keygen, (
+    uint16_t paramSet,
+    const uint8_t *seed, uint32_t seedLen,
+    uint8_t *pkOut, uint32_t pkOutMax,
+    uint8_t *skOut, uint32_t skOutMax
+), {
+    if (!Module._pqcBridge || !Module._pqcBridge.mlkemKeygen) return -1;
+    return Module._pqcBridge.mlkemKeygen(paramSet, seed, seedLen,
+                                          pkOut, pkOutMax, skOut, skOutMax);
+});
+
+/* ML-KEM encapsulate: given a public key, produce (ciphertext, sharedSecret).
+ * Returns 0 on success, negative on error. */
+EM_JS(int, pqc_bridge_mlkem_encap, (
+    uint16_t paramSet,
+    const uint8_t *pk, uint32_t pkLen,
+    uint8_t *ctOut, uint32_t ctOutMax,
+    uint8_t *ssOut, uint32_t ssOutMax
+), {
+    if (!Module._pqcBridge || !Module._pqcBridge.mlkemEncap) return -1;
+    return Module._pqcBridge.mlkemEncap(paramSet, pk, pkLen,
+                                         ctOut, ctOutMax, ssOut, ssOutMax);
+});
+
+/* ML-KEM decapsulate: given private key + ciphertext, recover sharedSecret.
+ * Returns 0 on success, negative on error. */
+EM_JS(int, pqc_bridge_mlkem_decap, (
+    uint16_t paramSet,
+    const uint8_t *sk, uint32_t skLen,
+    const uint8_t *ct, uint32_t ctLen,
+    uint8_t *ssOut, uint32_t ssOutMax
+), {
+    if (!Module._pqcBridge || !Module._pqcBridge.mlkemDecap) return -1;
+    return Module._pqcBridge.mlkemDecap(paramSet, sk, skLen,
+                                         ct, ctLen, ssOut, ssOutMax);
+});
+
+/* ML-DSA sign: given private key + digest, produce signature.
+ * Returns signature byte count on success, negative on error. */
+EM_JS(int, pqc_bridge_mldsa_sign, (
+    uint16_t paramSet,
+    const uint8_t *sk, uint32_t skLen,
+    const uint8_t *digest, uint32_t digestLen,
+    uint8_t *sigOut, uint32_t sigOutMax
+), {
+    if (!Module._pqcBridge || !Module._pqcBridge.mldsaSign) return -1;
+    return Module._pqcBridge.mldsaSign(paramSet, sk, skLen,
+                                        digest, digestLen, sigOut, sigOutMax);
+});
+
+/* ML-DSA keygen: derive (pk, sk) from a seed.
+ * Returns pk byte count on success, negative on error. */
+EM_JS(int, pqc_bridge_mldsa_keygen, (
+    uint16_t paramSet,
+    const uint8_t *seed, uint32_t seedLen,
+    uint8_t *pkOut, uint32_t pkOutMax,
+    uint8_t *skOut, uint32_t skOutMax
+), {
+    if (!Module._pqcBridge || !Module._pqcBridge.mldsaKeygen) return -1;
+    return Module._pqcBridge.mldsaKeygen(paramSet, seed, seedLen,
+                                          pkOut, pkOutMax, skOut, skOutMax);
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * Public WASM API — called from JS via cwrap / ccall
  * ═══════════════════════════════════════════════════════════════════════════ */
 

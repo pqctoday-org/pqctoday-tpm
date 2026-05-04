@@ -207,18 +207,27 @@ CryptMlDsaGenerateKey(TPMT_PUBLIC    *publicArea,
     seedLen = sizeof(seed);
 
 #ifdef __EMSCRIPTEN__
-    /* WASM: EVP provider dispatch uses mismatched function pointer types that
-     * cause call_indirect type traps.  Emscripten's FILESYSTEM=0 also leaves
-     * OpenSSL RAND_bytes without an entropy source.  Use the TPM's own seeded
-     * DRBG to fill the public key bytes; keys are not cryptographically valid
-     * but are correctly sized for compliance-test purposes. */
+    /* Issue #9: Try the softhsm-wasm PQC bridge first for real ML-DSA keygen. */
+    {
+        int brc = pqc_bridge_mldsa_keygen(
+            (uint16_t)paramSet,
+            seed, (uint32_t)seedLen,
+            publicArea->unique.mldsa.t.buffer, (uint32_t)expectedPub,
+            sensitive->sensitive.mldsa.t.buffer, (uint32_t)sizeof(sensitive->sensitive.mldsa.t.buffer));
+        if (brc >= 0) {
+            publicArea->unique.mldsa.t.size = expectedPub;
+            sensitive->sensitive.mldsa.t.size = (UINT16)seedLen;
+            OPENSSL_cleanse(seed, sizeof(seed));
+            return TPM_RC_SUCCESS;
+        }
+    }
+    /* Fallback: DRBG-filled placeholders */
     if (rand != NULL) {
         if (DRBG_Generate(rand, publicArea->unique.mldsa.t.buffer, expectedPub) != expectedPub) {
             result = TPM_RC_NO_RESULT;
             goto cleanup;
         }
     } else {
-        /* No rand state — fall back to a deterministic expansion of the seed. */
         UINT16 off = 0;
         while (off < expectedPub) {
             UINT16 chunk = (UINT16)(expectedPub - off);
@@ -320,8 +329,46 @@ CryptMlDsaSign(TPMT_SIGNATURE            *sigOut,
         return TPM_RC_SCHEME;
 
 #ifdef __EMSCRIPTEN__
-    /* WASM: key material is placeholder bytes.  Return a deterministic
-     * stub signature at the correct size for this parameter set. */
+    /* Issue #9: Try the softhsm-wasm PQC bridge for real ML-DSA signing. */
+    {
+        BYTE *outBuf = NULL;
+        UINT16 outSize = 0;
+#if ALG_MLDSA
+        if (pub->type == TPM_ALG_MLDSA) {
+            outBuf = sigOut->signature.mldsa.t.buffer;
+        }
+#endif
+#if ALG_HASH_MLDSA
+        if (pub->type == TPM_ALG_HASH_MLDSA) {
+            outBuf = sigOut->signature.hash_mldsa.signature.t.buffer;
+        }
+#endif
+        if (outBuf != NULL) {
+            int brc = pqc_bridge_mldsa_sign(
+                (uint16_t)paramSet,
+                key->sensitive.sensitive.mldsa.t.buffer,
+                (uint32_t)key->sensitive.sensitive.mldsa.t.size,
+                hIn->t.buffer, (uint32_t)hIn->t.size,
+                outBuf, (uint32_t)expectedSigSize);
+            if (brc >= 0) {
+#if ALG_MLDSA
+                if (pub->type == TPM_ALG_MLDSA) {
+                    sigOut->sigAlg = TPM_ALG_MLDSA;
+                    sigOut->signature.mldsa.t.size = expectedSigSize;
+                }
+#endif
+#if ALG_HASH_MLDSA
+                if (pub->type == TPM_ALG_HASH_MLDSA) {
+                    sigOut->sigAlg = TPM_ALG_HASH_MLDSA;
+                    sigOut->signature.hash_mldsa.hash = pub->nameAlg;
+                    sigOut->signature.hash_mldsa.signature.t.size = expectedSigSize;
+                }
+#endif
+                return TPM_RC_SUCCESS;
+            }
+        }
+    }
+    /* Fallback: placeholder 0xEE bytes */
     (void)pkey; (void)mdctx; (void)pctx; (void)initParams; (void)ctxParams;
     (void)sigLen; (void)sigBuf;
 #if ALG_MLDSA

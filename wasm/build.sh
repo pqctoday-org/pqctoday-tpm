@@ -18,6 +18,14 @@ DIST_DIR="$WASM_DIR/dist"
 # Default OpenSSL WASM path — sibling repo pqctoday-hsm
 OPENSSL_WASM_DIR="${OPENSSL_WASM_DIR:-$REPO_ROOT/../pqctoday-hsm/deps/openssl-wasm}"
 
+# ── Python path fix ─────────────────────────────────────────────────────────
+# Emscripten requires Python >= 3.10; macOS ships with 3.9.6 via Xcode.
+# Use Homebrew's python@3.13 if available.
+if [[ -d "/opt/homebrew/opt/python@3.13/libexec/bin" ]]; then
+    export PATH="/opt/homebrew/opt/python@3.13/libexec/bin:/opt/homebrew/bin:$PATH"
+    echo "Python:       $(python3 --version)"
+fi
+
 # ── Checks ──────────────────────────────────────────────────────────────────
 if ! command -v emcc &>/dev/null; then
     echo "error: emcc not found. Install Emscripten: https://emscripten.org/docs/getting_started/downloads.html" >&2

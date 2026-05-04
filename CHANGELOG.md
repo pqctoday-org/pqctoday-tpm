@@ -6,7 +6,95 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
-## [0.2.0] — Phase 0 + Phase 2 + Phase 3 + Phase 3.5 + Phase 3.5+1 + Phase 4 + Phase 4.1 + Phase 4.2 + WASM Milestone 2
+### WASM Milestone 3 — Real PQC crypto via SoftHSMv3 bridge (Issue #9)
+
+Replaces the 0xCC/0xDD/0xEE placeholder stubs in the Emscripten WASM build
+with real ML-KEM-768 and ML-DSA-65 cryptographic operations, routed through
+the softhsmv3 Rust WASM module's PKCS#11 v3.2 API. The compliance suite now
+achieves **18/18 passing checks** including two new bridge-validation checks.
+
+#### Architecture: EM_JS → JS bridge → softhsm-wasm
+
+```
+pqctpm.wasm (C) ──EM_JS──> Module._pqcBridge (JS) ──> softhsmv3.wasm (Rust)
+```
+
+The C code in `CryptMlKem.c` / `CryptMlDsa.c` calls EM_JS functions that
+check for `Module._pqcBridge` on the pqctpm Module object. If no bridge is
+registered (standalone WASM), the code falls back to the existing DRBG-fill /
+placeholder behavior — backward compatibility is fully preserved.
+
+#### C-side changes
+
+**`wasm/wasm_platform.c`** — 5 new `EM_JS` bridge dispatchers:
+- `pqc_bridge_mlkem_keygen` / `_encap` / `_decap` — ML-KEM-768 operations
+- `pqc_bridge_mldsa_keygen` / `_sign` — ML-DSA-65 operations
+
+Each dispatcher checks `Module._pqcBridge` at runtime and marshals
+buffer pointers + sizes through the WASM i32 ABI.
+
+**`CryptMlKem.c`** — All 3 `#ifdef __EMSCRIPTEN__` blocks (keygen,
+encapsulate, decapsulate) now try the bridge first via
+`pqc_bridge_mlkem_*()`. On success, real ML-KEM bytes are written
+directly into the TPM structures. On failure (return -1 = no bridge),
+falls back to DRBG-fill / 0xCC/0xDD placeholders.
+
+**`CryptMlDsa.c`** — Both keygen and sign `#ifdef __EMSCRIPTEN__`
+blocks try `pqc_bridge_mldsa_*()` first. ML-DSA sign now produces
+real 3309-byte signatures instead of 0xEE fill.
+
+#### Build
+
+**`wasm/build.sh`** — Added Python 3.13 PATH override to fix the
+Emscripten/Xcode Python 3.9 conflict (`/opt/homebrew/opt/python@3.13`).
+
+Output: `pqctpm.wasm` (2.1 MB), `pqctpm.js` (20 KB).
+
+#### Hub-side integration (pqctoday-hub, documented for cross-repo traceability)
+
+- **`src/wasm/pqcCryptoBridge.ts`** (NEW) — ~400-line TypeScript module that
+  initializes softhsmv3, opens a PKCS#11 session, and implements 5 bridge
+  callbacks: `mlkemKeygen` (`C_GenerateKeyPair`), `mlkemEncap`
+  (`C_EncapsulateKey`), `mlkemDecap` (`C_DecapsulateKey`), `mldsaKeygen`
+  (`C_GenerateKeyPair`), `mldsaSign` (`C_SignInit + C_Sign`).
+
+- **`src/wasm/tpmBridge.ts`** — After `tpm_wasm_startup()`, dynamically
+  imports and registers the bridge. Non-fatal: if bridge loading fails,
+  falls back to placeholder behavior.
+
+- **`ComplianceRunner.tsx`** — Added 2 new bridge-validation checks:
+  - **V185-017**: KEM Round-Trip (`ss_encap === ss_decap`, non-trivial)
+  - **V185-018**: DSA Non-Trivial (`sig ≠ 0xEE` placeholder)
+  - Decapsulate now uses the real ciphertext from Encapsulate for true
+    round-trip validation.
+
+- **`tpmCommandDefs.ts`** — Updated Encapsulate, Decapsulate, and
+  SignDigest descriptions to reflect real PQC crypto output.
+
+#### Verification
+
+```text
+pqctoday-hub compliance runner (in-browser WASM):
+  V185-001  TPM2_SelfTest(fullTest)             PASS
+  V185-002  Response Header Structure           PASS
+  V185-003  TPM2_GetCapability(ALGS)            PASS  36 algorithms
+  V185-004  ML-KEM (0x00A0) registered          PASS
+  V185-005  ML-DSA (0x00A1) registered          PASS
+  V185-006  TPM2_GetRandom entropy source       PASS
+  V185-007  Entropy non-trivial (32 B)          PASS
+  V185-008  CreatePrimary ML-KEM-768 EK         PASS  handle=0x80000000
+  V185-009  ML-KEM-768 public key = 1184 B      PASS
+  V185-010  CreatePrimary ML-DSA-65 AK          PASS  handle=0x80000001
+  V185-011  ML-DSA-65 public key = 1952 B       PASS
+  V185-012  TPM2_Encapsulate (ML-KEM-768 EK)    PASS
+  V185-013  Encapsulate output sizes            PASS  ss=32B ct=1088B
+  V185-014  TPM2_Decapsulate (ML-KEM-768 EK)    PASS  ss=32B
+  V185-015  TPM2_SignDigest (ML-DSA-65 AK)      PASS
+  V185-016  SignDigest sig size = 3309 B        PASS  sigAlg=0x00A1
+  V185-017  KEM Round-Trip: ss_A === ss_B       PASS  32B, non-trivial — real crypto
+  V185-018  DSA Non-Trivial: sig ≠ placeholder  PASS  sig[0..3]=B5 A8 63 5A
+  Result: 18/18 passed
+```
 
 ### WASM Milestone 2 — Full V1.85 use-phase compliance (16/16 in-browser checks)
 
