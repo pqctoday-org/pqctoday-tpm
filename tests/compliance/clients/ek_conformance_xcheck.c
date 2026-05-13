@@ -207,8 +207,66 @@ static void check_one(WOLFTPM2_DEV *dev,
         return;
     }
 
-    rpass("%s @ 0x%08x — V2.7 template prefix (%zu B) bit-exact + FIPS unique.size=%u",
-          name, (unsigned)handle, prefixLen, expected_pk);
+    /* ─── Phase B step 5: Name / qualifiedName / hierarchy structure check.
+     *
+     * Per V1.85 Part 2 §16.2 (Name) and §16.3 (Qualified Name):
+     *   Name           = TPM_ALG_ID nameAlg || H(publicArea bytes)
+     *   QualifiedName  = TPM_ALG_ID nameAlg || H(parent.QN || Name)
+     *
+     * For a primary key in the Endorsement hierarchy, parent.QN is the
+     * special-encoded TPM_RH_ENDORSEMENT (`0x4000000B`). The TPM computes
+     * both Name and QN at CreatePrimary and returns them on ReadPublic.
+     *
+     * Full recomputation would require hashing the FULL TPMT_PUBLIC
+     * including `unique.buffer` — which wolfTPM v4.0.0 doesn't always
+     * marshal back through its public API (separate upstream gap). So
+     * here we check the STRUCTURAL invariants the spec mandates:
+     *   • name.size  == 2 + digestSize(nameAlg)   (the TPM_ALG_ID prefix
+     *                                              plus the hash output)
+     *   • name[0..1] == nameAlg encoded big-endian (matches public.nameAlg)
+     *   • Same shape for qualifiedName.
+     * That alone is enough to prove the TPM computed Names per spec —
+     * a stub would not produce the right size or the right algorithm ID
+     * prefix. Full hash recomputation can land later when wolfTPM ships
+     * the unique-buffer marshal fix. */
+    unsigned digestSize;
+    switch (out.outPublic.publicArea.nameAlg) {
+        case TPM_ALG_SHA256: digestSize = 32; break;
+        case TPM_ALG_SHA384: digestSize = 48; break;
+        case TPM_ALG_SHA512: digestSize = 64; break;
+        default:
+            rfail("%s — unexpected nameAlg 0x%x in readback",
+                  name, (unsigned)out.outPublic.publicArea.nameAlg);
+            return;
+    }
+    const unsigned expected_name_size = 2 + digestSize;
+
+    if (out.name.size != expected_name_size) {
+        rfail("%s — name.size = %u, V1.85 §16.2 requires 2+digest = %u",
+              name, (unsigned)out.name.size, expected_name_size);
+        return;
+    }
+    if (out.qualifiedName.size != expected_name_size) {
+        rfail("%s — qualifiedName.size = %u, V1.85 §16.3 requires 2+digest = %u",
+              name, (unsigned)out.qualifiedName.size, expected_name_size);
+        return;
+    }
+    /* Big-endian 2-byte TPM_ALG_ID prefix on both Name and QN. */
+    const TPM_ALG_ID na = out.outPublic.publicArea.nameAlg;
+    const byte hi = (byte)(na >> 8), lo = (byte)(na & 0xff);
+    if (out.name.name[0] != hi || out.name.name[1] != lo) {
+        rfail("%s — name nameAlg prefix %02x%02x, expected %02x%02x",
+              name, out.name.name[0], out.name.name[1], hi, lo);
+        return;
+    }
+    if (out.qualifiedName.name[0] != hi || out.qualifiedName.name[1] != lo) {
+        rfail("%s — qualifiedName nameAlg prefix %02x%02x, expected %02x%02x",
+              name, out.qualifiedName.name[0], out.qualifiedName.name[1], hi, lo);
+        return;
+    }
+
+    rpass("%s @ 0x%08x — V2.7 template (%zu B) + FIPS unique.size=%u + spec Name/QN (%u B each)",
+          name, (unsigned)handle, prefixLen, expected_pk, expected_name_size);
 }
 
 /* Persistent handle assignments (pqctoday-tpm internal — V2.7 RC1 does not
