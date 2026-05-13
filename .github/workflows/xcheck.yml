@@ -152,6 +152,18 @@ jobs:
           WORKSPACE: ${{ github.workspace }}
         run: bash tests/compliance/run_wolftpm_runtime_xcheck.sh
 
+      # ── Drive the attestation cross-check (v0.4.0, G8) ───────────────────
+      # Real TPM2_Quote + TPM2_Certify against ML-DSA AKs (44/65/87), dual-
+      # verified by wolfCrypt and OpenSSL EVP. Shares the same swtpm setup
+      # path as the prior step (reinstalled fresh per run). Must report
+      # 12 PASS / 0 FAIL.
+      - name: Run TPM2_Quote / TPM2_Certify attestation cross-check
+        env:
+          LD_LIBRARY_PATH: /opt/openssl/lib64:/usr/local/lib
+          PATH: /opt/openssl/bin:/usr/local/bin:/usr/bin:/bin
+          WORKSPACE: ${{ github.workspace }}
+        run: bash tests/compliance/run_attestation_xcheck.sh
+
       - name: Upload swtpm logs on failure
         if: failure()
         uses: actions/upload-artifact@v4

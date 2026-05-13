@@ -71,6 +71,12 @@ pass "active profile includes V1.85 PQC commands"
 # ── Step 3: start swtpm on TCP 2321/2322 ────────────────────────────────────
 section "Start swtpm socket"
 
+# Kill any prior swtpm holding ports 2321/2322 (e.g. left over from a previous
+# xcheck step in the same CI job). Without this, the bind below silently fails
+# and the client gets ECONNREFUSED.
+pkill -f "swtpm socket" 2>/dev/null || true
+sleep 1
+
 swtpm socket --tpm2 \
     --server type=tcp,port=2321 \
     --ctrl   type=tcp,port=2322 \

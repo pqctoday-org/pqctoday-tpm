@@ -1,7 +1,9 @@
 # pqctoday-tpm
 
-[![CI](https://github.com/pqctoday/pqctoday-tpm/actions/workflows/ci.yml/badge.svg)](https://github.com/pqctoday/pqctoday-tpm/actions/workflows/ci.yml)
-[![wolfTPM Runtime Cross-Check](https://github.com/pqctoday/pqctoday-tpm/actions/workflows/xcheck.yml/badge.svg)](https://github.com/pqctoday/pqctoday-tpm/actions/workflows/xcheck.yml)
+[![CI](https://github.com/pqctoday-org/pqctoday-tpm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pqctoday-org/pqctoday-tpm/actions/workflows/ci.yml)
+[![Nightly runtime cross-check](https://github.com/pqctoday-org/pqctoday-tpm/actions/workflows/xcheck.yml/badge.svg?branch=main&event=schedule)](https://github.com/pqctoday-org/pqctoday-tpm/actions/workflows/xcheck.yml)
+[![Latest release](https://img.shields.io/github/v/release/pqctoday-org/pqctoday-tpm?display_name=tag&sort=semver)](https://github.com/pqctoday-org/pqctoday-tpm/releases)
+
 Post-quantum TPM 2.0 emulator implementing [TCG TPM 2.0 Library Specification V1.85](https://trustedcomputinggroup.org/resource/tpm-library-specification/) PQC extensions.
 
 Fork of [libtpms v0.10.2](https://github.com/stefanberger/libtpms) + [swtpm v0.10.1](https://github.com/stefanberger/swtpm) with **ML-KEM** (FIPS 203) and **ML-DSA** (FIPS 204) support via OpenSSL 3.6+ EVP.
