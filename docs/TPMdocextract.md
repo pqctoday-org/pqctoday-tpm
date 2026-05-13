@@ -930,3 +930,163 @@ Validates a signature on a message incorporated into a sequence.
   - Verifies a message instead of a digest.
   - The ticket's tag is `TPM_ST_MESSAGE_VERIFIED`.
 - **Ticket generation:** If successful, returns a `TPMT_TK_VERIFIED`. If the key is in the NULL hierarchy, then `hmac` in the ticket will be the Empty Buffer. For other hierarchies, the `hmac` must be computed over the hierarchy proof.
+
+---
+
+## 17. TCG EK Credential Profile — V2.7 RC1 (Public Review, 7 Nov 2025) — PQC EK provisioning
+
+**Source PDF:** `docs/standards/TCG-EK-Credential-Profile-for-TPM-Family-2p0-Level-0-V2p7-RC1_7November2025.pdf`
+(73 pages, public review draft — supersedes V2.6 (Jul 2024). Pulled into the repo 2026-05-13.)
+
+This is the spec our local issue [`#2` (G7-A)](https://github.com/pqctoday-org/pqctoday-tpm/issues/2)
+was waiting on. **It is now available — RC1, not final, but stable enough to
+implement against.** V2.7 adds Sections 5.4.6.5–5.4.6.6 (default PQC EK
+templates), §3.1.5 (`TPMPQCVersion` cert attribute), §3.2.11.3 (`TPMPQCVersion`
+in EK cert), §6.1.3 + §6.2.3 + §6.2.4 (ML-DSA/ML-KEM signature & SPKI algorithm
+identifiers), and the NV index allocations for PQC EK certificates (§2.2.2.5.1).
+
+### 17.1 NV Index allocations for PQC EK certificates (§5.3.1)
+
+| NV index | Purpose | Cert slot |
+|---|---|---|
+| `0x01c00060` | ML-KEM-512 EK Certificate | H-26 |
+| `0x01c00062` | ML-KEM-768 EK Certificate | H-27 |
+| `0x01c00064` | ML-KEM-1024 EK Certificate | H-28 |
+| `0x01c00066` | ML-KEM-512 firmware-limited EK Certificate | H-29 |
+| `0x01c00068` | ML-KEM-768 firmware-limited EK Certificate | H-30 |
+| `0x01c0006a` | ML-KEM-1024 firmware-limited EK Certificate | H-31 |
+| `0x01c00070` | ML-DSA-44 EK Certificate | H-32 |
+| `0x01c00072` | ML-DSA-65 EK Certificate | H-33 |
+| `0x01c00074` | ML-DSA-87 EK Certificate | H-34 |
+| `0x01c00076` | ML-DSA-44 firmware-limited EK Certificate | H-35 |
+| `0x01c00078` | ML-DSA-65 firmware-limited EK Certificate | H-36 |
+| `0x01c0007a` | ML-DSA-87 firmware-limited EK Certificate | H-37 |
+
+> Note: These are NV indexes for the certificate blobs (X.509 EK certs). The
+> persistent EK *key* handles (typical range `0x8101xxxx`) are not normatively
+> assigned in this RC and remain implementation-specific. Our current
+> assignments (`0x810100A0`/`A1`/`A2`/`A3` for ML-KEM-768 / ML-DSA-65/44/87)
+> stay valid pending the final V2.7 spec.
+
+### 17.2 Default EK Template (TPMT_PUBLIC) — ML-KEM Storage (§5.4.6.5 Table 13)
+
+| Parameter | Type | ML-KEM-512 (H-26 / H-29) | ML-KEM-768 (H-27 / H-30) | ML-KEM-1024 (H-28 / H-31) |
+|---|---|---|---|---|
+| type | `TPMI_ALG_PUBLIC` | `TPM_ALG_MLKEM` | `TPM_ALG_MLKEM` | `TPM_ALG_MLKEM` |
+| nameAlg | `TPMI_ALG_HASH` | `TPM_ALG_SHA256` | **`TPM_ALG_SHA384`** | **`TPM_ALG_SHA512`** |
+| objectAttributes | `TPMA_OBJECT` | attributes-storage (or attributes-fwl-storage) | same | same |
+| authPolicy | `TPM2B_DIGEST` | 32-byte `PolicyBSHA256` | 48-byte `PolicyBSHA384` | 64-byte `PolicyBSHA512` |
+| parameters.symmetric.algorithm | `TPMI_ALG_SYM_OBJECT` | `TPM_ALG_AES` | `TPM_ALG_AES` | `TPM_ALG_AES` |
+| parameters.symmetric.keyBits | `TPMI_AES_KEY_BITS` | **128** | **256** | **256** |
+| parameters.symmetric.mode | `TPMI_ALG_SYM_MODE` | `TPM_ALG_CFB` | `TPM_ALG_CFB` | `TPM_ALG_CFB` |
+| parameters.parameterSet | `TPMI_MLKEM_PARMS` | `TPM_MLKEM_512` | `TPM_MLKEM_768` | `TPM_MLKEM_1024` |
+| unique | `TPM2B_PUBLIC_KEY_MLKEM` | size=0 (Empty) | size=0 (Empty) | size=0 (Empty) |
+
+### 17.3 Default EK Template (TPMT_PUBLIC) — ML-DSA Signing (§5.4.6.6 Table 14)
+
+| Parameter | Type | ML-DSA-44 (H-32 / H-35) | ML-DSA-65 (H-33 / H-36) | ML-DSA-87 (H-34 / H-37) |
+|---|---|---|---|---|
+| type | `TPMI_ALG_PUBLIC` | `TPM_ALG_MLDSA` | `TPM_ALG_MLDSA` | `TPM_ALG_MLDSA` |
+| nameAlg | `TPMI_ALG_HASH` | `TPM_ALG_SHA256` | **`TPM_ALG_SHA384`** | **`TPM_ALG_SHA512`** |
+| objectAttributes | `TPMA_OBJECT` | attributes-signing (or attributes-fwl-signing) | same | same |
+| authPolicy | `TPM2B_DIGEST` | 32-byte `PolicyBSHA256` | 48-byte `PolicyBSHA384` | 64-byte `PolicyBSHA512` |
+| parameters.parameterSet | `TPMI_MLDSA_PARMS` | `TPM_MLDSA_44` | `TPM_MLDSA_65` | `TPM_MLDSA_87` |
+| parameters.allowExternalMu | `BOOL` | **0** (`NO`) | **0** (`NO`) | **0** (`NO`) |
+| unique | `TPM2B_PUBLIC_KEY_MLDSA` | size=0 (Empty) | size=0 (Empty) | size=0 (Empty) |
+
+### 17.4 Object Attributes (§5.4.5.1 Table 7)
+
+Both PQC storage EKs and signing EKs use the standard EK template attribute
+set; `firmwareLimited` flips for the FW-limited variants.
+
+| Bit | Attribute | Storage | Signing | FW-Lim Storage | FW-Lim Signing |
+|---|---|---|---|---|---|
+| 1 | fixedTPM | 1 | 1 | 1 | 1 |
+| 4 | fixedParent | 1 | 1 | 1 | 1 |
+| 5 | sensitiveDataOrigin | 1 | 1 | 1 | 1 |
+| 6 | userWithAuth | 1 | 1 | 1 | 1 |
+| 7 | **adminWithPolicy** | **1** | **1** | **1** | **1** |
+| 8 | firmwareLimited | 0 | 0 | **1** | **1** |
+| 16 | restricted | 1 | 1 | 1 | 1 |
+| 17 | decrypt | **1** | 0 | **1** | 0 |
+| 18 | sign | 0 | **1** | 0 | **1** |
+
+Encoded as a `UINT32`: storage `0x000300B2`, signing `0x000500B2`,
+fwl-storage `0x000301B2`, fwl-signing `0x000501B2`.
+
+### 17.5 PolicyB authorization-policy digests (§5.4.5.2 Table 8)
+
+`PolicyB` is the spec-defined policy authorizing both PolicySecret(EH) and
+PolicyAuthorizeNV branches. Same `PolicyB` family used since V2.5; new variants
+for SHA-384 / SHA-512 added to match the SHA-384/512 nameAlgs of ML-KEM-768/1024
+and ML-DSA-65/87.
+
+| Hash | Digest size | First 8 bytes (full value in spec) |
+|---|---|---|
+| `PolicyBSHA256` | 32 B | `CA 3D 0A 99 A2 B9 39 06` ... |
+| `PolicyBSHA384` | 48 B | `B2 6E 7D 28 D1 1A 50 BC` ... |
+| `PolicyBSHA512` | 64 B | `B8 22 1C A6 9E 85 50 A4` ... |
+
+These exact 32/48/64-byte buffers MUST be embedded in the EK template's
+`authPolicy`. Computing them requires running `TPM2_PolicyOR` over the spec's
+PolicyA + PolicyAuthorizeNV branches at the chosen hash algorithm. Reference
+values are in `docs/standards/TCG-EK-Credential-Profile-...-V2p7-RC1.pdf`
+Tables 21 (PolicyA), 22 (PolicyB).
+
+### 17.6 Cert algorithm identifiers (§6 — ASN.1 / X.509)
+
+For the EK certificate signed by an ML-DSA CA key (§6.1.3):
+
+> *"For an ML-DSA CA key, the algorithm SHOULD be one of the ML-DSA algorithm
+> identifiers defined in RFC TBD (draft-ietf-lamps-dilithium-certificates)."*
+
+Subject Public Key Info OIDs (§6.2.3 ML-KEM, §6.2.4 ML-DSA):
+
+| Algorithm | OID |
+|---|---|
+| ML-KEM-512 | `2.16.840.1.101.3.4.4.1` (`id-alg-ml-kem-512`) |
+| ML-KEM-768 | `2.16.840.1.101.3.4.4.2` (`id-alg-ml-kem-768`) |
+| ML-KEM-1024 | `2.16.840.1.101.3.4.4.3` (`id-alg-ml-kem-1024`) |
+| ML-DSA-44 | `2.16.840.1.101.3.4.3.17` (`id-ml-dsa-44`) |
+| ML-DSA-65 | `2.16.840.1.101.3.4.3.18` (`id-ml-dsa-65`) |
+| ML-DSA-87 | `2.16.840.1.101.3.4.3.19` (`id-ml-dsa-87`) |
+
+The OID `id-ml-kem-*` values come from `draft-ietf-lamps-kyber-certificates`;
+`id-ml-dsa-*` from `draft-ietf-lamps-dilithium-certificates`. Both are NIST
+CSOR-registered OIDs already in OpenSSL 3.5+ ML-DSA / ML-KEM provider tables.
+
+### 17.7 TPMPQCVersion cert attribute (§3.1.5 + §3.2.11.3) — new in V2.7
+
+If the TPM requires a post-manufacturing firmware upgrade to use its ML-KEM or
+ML-DSA EK Credential, the EK certificate MUST include the `TPMPQCVersion`
+attribute. Otherwise it MUST NOT be present.
+
+```
+TPMPQCVersion ATTRIBUTE ::= { ... ID tcg-at-tpmPQCVersion }
+tcg-at-tpmPQCVersion OBJECT IDENTIFIER ::= { tcg-attribute 27 }
+```
+
+Carries the minimum value of the most significant 64 bits of
+`TPM_PT_FIRMWARE_VERSION_2` required to use the PQC EK. Verifiers compare
+against the TPM's current `TPM_PT_FIRMWARE_VERSION_2` to determine whether PQC
+is actually usable on the TPM today, or whether a field upgrade is needed.
+
+### 17.8 EKCredentialAlgorithmList cert attribute (§3.1.4) — new in V2.7
+
+For mixed classical+PQC TPMs, each EK cert MAY include an
+`EKCredentialAlgorithmList` listing OIDs of *all* algorithms for which this TPM
+holds EK Credentials. Example: a TPM with EK Credentials for RSA-2048,
+ECC NIST-P256/P384, and ML-KEM-768 would list `rsaEncryption`,
+`id-ecPublicKey`, and `id-alg-ml-kem-768`. Enables verifiers to discover
+available PQC EKs without scanning all NV indexes.
+
+### 17.9 Status
+
+| Aspect | Status |
+|---|---|
+| Spec maturity | RC1 Public Review (Nov 2025) — substantive content stable, OID and encoding details may shift before final. |
+| Mandatory parameter sets | All three for ML-KEM (512/768/1024); all three for ML-DSA (44/65/87). |
+| Local pqctoday-tpm gap | ✅ Issue [`#2`](https://github.com/pqctoday-org/pqctoday-tpm/issues/2) NO LONGER BLOCKED — proceed with implementation against V2.7 RC1, accept that small follow-ups may be needed at final. |
+| Workshop AK template alignment | Our `swtpm_setup` AKs (commits `a4e51998`, prior) use `nameAlg = SHA-256` across all three ML-DSA variants — V2.7 mandates SHA-256/384/512 by variant. Bring nameAlg into line in the EK template work. |
+
+---
