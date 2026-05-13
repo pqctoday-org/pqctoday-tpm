@@ -6,6 +6,89 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-13
+
+### Post-quantum remote attestation — TPM2_Quote / TPM2_Certify with ML-DSA AK
+
+Closes [`#1`](https://github.com/pqctoday-org/pqctoday-tpm/issues/1) (G8). First
+independent post-quantum TPM 2.0 remote-attestation implementation in any
+open-source stack (verified by upstream survey 2026-05-12: wolfTPM v4.0.0 +
+PR #501 has no `Quote`/`Certify` example with ML-DSA AK; libtpms upstream has
+no PQC at all).
+
+#### What works end-to-end
+
+`make attestation-xcheck` — **12 PASS / 0 FAIL** as of release:
+
+```text
+TPM2_Quote with ML-DSA AK + PCR digest (Part 3 §18.4)
+  [PASS] Quote ML-DSA-44: TPM sig=2420, wolfCrypt+OpenSSL both ACCEPTED
+  [PASS] Quote ML-DSA-65: TPM sig=3309, wolfCrypt+OpenSSL both ACCEPTED
+  [PASS] Quote ML-DSA-87: TPM sig=4627, wolfCrypt+OpenSSL both ACCEPTED
+TPM2_Certify with ML-DSA AK (Part 3 §18.2)
+  [PASS] Certify ML-DSA-44: TPM sig=2420, wolfCrypt+OpenSSL both ACCEPTED
+  [PASS] Certify ML-DSA-65: TPM sig=3309, wolfCrypt+OpenSSL both ACCEPTED
+  [PASS] Certify ML-DSA-87: TPM sig=4627, wolfCrypt+OpenSSL both ACCEPTED
+```
+
+Pipeline (real TPM, real PQC crypto, dual independent verifiers — no stubs):
+
+```text
+swtpm + libtpms (OpenSSL 3.6.2 ML-DSA)
+     │
+     │  TPM2_Quote / TPM2_Certify via wolfTPM v4.0.0 client API
+     ▼
+(attest_blob, ml_dsa_signature, ak_pubkey)
+     │
+     ├──► Verifier A: wolfCrypt wc_MlDsaKey_VerifyCtx (independent stack)
+     └──► Verifier B: OpenSSL 3.6.2 EVP_DigestVerify (fresh EVP_PKEY)
+```
+
+FIPS 204 sizes byte-exact for AK pubkey (1312/1952/2592) and signature
+(2420/3309/4627). `TPM_GENERATED_VALUE` magic (0xFF544347) at `TPMS_ATTEST[0..4]`
+verified before crypto. Both verifiers must accept; either rejection FAILs.
+
+#### Spec coverage (V1.85 RC4)
+
+- Part 3 §18.2 Tables 97-98 — `TPM2_Certify` command/response
+- Part 3 §18.4 Tables 101-102 — `TPM2_Quote` command/response
+- Part 2 §10.11 — `TPMS_ATTEST`, `TPMS_CERTIFY_INFO`, `TPMS_QUOTE_INFO`, attested union
+- Part 1 §16.2 — restricted-AK ADMIN/USER auth roles (HMAC session with empty authValue when `adminWithPolicy=CLEAR`)
+- Part 1 §22.1.2 + Table 33 — `TPM_GENERATED_VALUE` first-octets rule
+- FIPS 204 — all parameter-set sizes
+
+Full extracted spec text now in `docs/TPMdocextract.md` §15 (Tables 97-102,
+141, 144-145, 151-154, restricted-AK rules, PCR digest recipe) — 12-line stub
+→ 220+ lines.
+
+#### Code changes (minimal — dispatcher was already ready)
+
+- `libtpms/src/tpm2/Attest_spt.c:170-176` — confirmed ML-DSA routes through `CryptMlDsaSignMessage()` for ALL attestation callers (Certify, Quote, CertifyCreation). **Zero core-code changes.**
+- `libtpms/src/tpm2/AttestationCommands.c:182-185` — confirmed `TPM2_Quote` derives PCR-digest hash from `nameAlg` when `inScheme=NULL` on an ML-DSA AK. **Already implemented.**
+- `libtpms/src/tpm2/crypto/openssl/CryptMlDsa.c` — added 13-line `#ifdef PQCTODAY_TPM_DETERMINISTIC_SIGN` block wiring `OSSL_SIGNATURE_PARAM_DETERMINISTIC=1`. Off in production builds. Empirically validates bit-exact reproducibility against OpenSSL 3.6.2's FIPS 204 §3.4 ρ″=0 path.
+- `swtpm/src/swtpm_setup/swtpm.c` — new ML-DSA-44 AK at `0x810100A2` and ML-DSA-87 AK at `0x810100A3` (matching the existing ML-DSA-65 template at `0x810100A1`).
+
+#### Test infrastructure (new)
+
+- `tests/compliance/clients/pqc_attestation_xcheck.c` — TPM-driven attestation client + dual verifier (single binary, ~470 lines).
+- `tests/compliance/run_attestation_xcheck.sh` — full setup + drive + summary wrapper.
+- `Makefile` — new `attestation-xcheck` target, depends on `docker-xcheck`.
+
+#### wolfTPM upstream V1.85 gaps surfaced
+
+Five real gaps found in `wolfSSL/wolfTPM` v4.0.0+PR#501 during this work (we
+work around all five in our test client; to be filed upstream separately):
+
+1. `TPMU_SIG_SCHEME` union missing `mldsa` + `hash_mldsa` arms (Part 2 §11.3.5 Table 216) — blocks explicit `inScheme.scheme = TPM_ALG_MLDSA`.
+2. `TPMS_SIG_SCHEME_MLDSA` + `TPMS_SIG_SCHEME_HASH_MLDSA` struct types missing.
+3. **`TPMT_TK_VERIFIED` defined as empty struct** (V1.85 §10.6.5 Table 112 mandates `{tag, hierarchy, [type]meta}`) — major: no client can inspect VerifySequenceComplete tickets.
+4. `TPMU_TK_VERIFIED_META` union missing entirely.
+5. `TPM2B_DIGEST_INFO` / external-µ TPM2B missing (Part 3 §29.2.1 SignDigest `allowExternalMu` mode).
+
+Our G8 test sends `inScheme=NULL` (spec-allowed) and relies on libtpms's
+dispatcher to derive the hash from `nameAlg` — fully spec-compliant
+workaround.
+
 ## [0.3.1] — 2026-05-13
 
 ### xcheck — drop `mlkem.h` symlink workaround (upstream wolfSSL/wolfTPM#499 closed)

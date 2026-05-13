@@ -3,7 +3,7 @@
 # The real build systems are autotools (libtpms, swtpm) and CMake (cross-val
 # harness, future WASM). This Makefile wraps common developer-facing targets.
 
-.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck clean
+.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck attestation-xcheck clean
 
 help:
 	@echo "pqctoday-tpm — developer targets"
@@ -14,6 +14,7 @@ help:
 	@echo "  make crossval       Run the PQC cross-validation harness in Docker"
 	@echo "  make crossval-build Build the harness without running it"
 	@echo "  make wolftpm-xcheck Runtime cross-check: wolfTPM PR #445 ↔ pqctoday-tpm"
+	@echo "  make attestation-xcheck  Runtime TPM2_Quote/Certify with ML-DSA AK (dual-verified)"
 	@echo "  make clean          Clean build artifacts under tests/crossval/build"
 	@echo
 
@@ -38,6 +39,15 @@ docker-xcheck: docker-dev
 wolftpm-xcheck: docker-xcheck
 	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-xcheck \
 	    bash tests/compliance/run_wolftpm_runtime_xcheck.sh
+
+# Attestation runtime cross-check: drives real TPM2_Quote / TPM2_Certify
+# commands against running swtpm using ML-DSA AKs (44/65/87), then verifies
+# the produced (attest, signature, pubkey) with TWO independent crypto stacks
+# (wolfCrypt and OpenSSL 3.6.2 EVP). Closes G8 (#1) — first independent PQC
+# remote-attestation in any open-source TPM 2.0 stack.
+attestation-xcheck: docker-xcheck
+	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-xcheck \
+	    bash tests/compliance/run_attestation_xcheck.sh
 
 crossval-build:
 	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-dev \
