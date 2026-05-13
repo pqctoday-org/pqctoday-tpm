@@ -60,6 +60,17 @@ All 8 new V1.85 PQC command codes, in code order. **0x1A2 is RESERVED.**
 
 > Values correspond to FIPS 203 [4]. Shared secret = 32 bytes for all parameter sets.
 
+**Primary-source cross-reference:** TCG Part 2 Table 204 mirrors **FIPS 203 Table 3**
+(_Sizes (in bytes) of keys and ciphertexts of ML-KEM_, p.39, NIST FIPS 203 (Aug 2024)):
+
+| Variant | Encaps key (pubkey) | Decaps key (privkey) | Ciphertext | Shared secret |
+|---|---|---|---|---|
+| ML-KEM-512  |  800 | 1632 |  768 | 32 |
+| ML-KEM-768  | 1184 | 2400 | 1088 | 32 |
+| ML-KEM-1024 | 1568 | 3168 | 1568 | 32 |
+
+Local PDF: `docs/standards/NIST.FIPS.203.pdf` (Module-Lattice-Based Key-Encapsulation Mechanism Standard).
+
 **Buffer size constants derived from Table 204:**
 
 | Constant | Value | Basis |
@@ -81,6 +92,17 @@ All 8 new V1.85 PQC command codes, in code order. **0x1A2 is RESERVED.**
 | TPM_MLDSA_87 | 0x0003 | 2592 | 4627 |
 
 > Values correspond to FIPS 204 [5].
+
+**Primary-source cross-reference:** TCG Part 2 Table 207 mirrors **FIPS 204 Table 2**
+(*Sizes (in bytes) of keys and signatures of ML-DSA*, p.16, NIST FIPS 204 (Aug 2024)):
+
+| Variant | Private key | Public key | Signature |
+|---|---|---|---|
+| ML-DSA-44 | 2560 | 1312 | 2420 |
+| ML-DSA-65 | 4032 | 1952 | 3309 |
+| ML-DSA-87 | 4896 | 2592 | 4627 |
+
+Local PDF: `docs/standards/NIST.FIPS.204.pdf` (Module-Lattice-Based Digital Signature Standard).
 
 **Buffer size constants derived from Table 207:**
 

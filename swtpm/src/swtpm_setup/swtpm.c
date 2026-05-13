@@ -47,6 +47,7 @@
 #include "swtpm_utils.h"
 #include "tpm_ioctl.h"
 #include "sys_dependencies.h"
+#include "tcg_pqc_ek_constants.h"  /* V2.7 RC1 PolicyB digests + NV indexes */
 
 #define AS2BE(VAL) (((VAL) >> 8) & 0xff), ((VAL) & 0xff)
 #define AS4BE(VAL) AS2BE((VAL) >> 16), AS2BE(VAL)
@@ -473,12 +474,35 @@ static const struct swtpm_cops swtpm_cops = {
 #define TPM2_EK_ECC_SECP384R1_HANDLE 0x81010016
 #define TPM2_SPK_HANDLE              0x81000001
 
-/* PQC EK/AK persistent handles — pqctoday-tpm internal allocation
- * (no TCG IWG provisioning spec for PQC EKs published yet) */
-#define TPM2_EK_MLKEM768_HANDLE      0x810100A0
-#define TPM2_EK_MLDSA65_HANDLE       0x810100A1
-#define TPM2_EK_MLDSA44_HANDLE       0x810100A2
-#define TPM2_EK_MLDSA87_HANDLE       0x810100A3
+/* PQC EK/AK persistent handles — pqctoday-tpm internal allocation.
+ *
+ * V2.7 RC1 (Nov 2025) defines NV indices for the EK *certificates*
+ * (0x01c00060..7a, see tcg_pqc_ek_constants.h) but does NOT normatively
+ * assign persistent EK *key* handles. Local allocation below.
+ *
+ * EK range (Endorsement hierarchy, V2.7-compliant templates per Tables 13/14):
+ *   0x810100A0  ML-KEM-768  EK (existing handle, tightened to V2.7 in place)
+ *   0x810100B0  ML-KEM-512  EK
+ *   0x810100B2  ML-KEM-1024 EK
+ *   0x810100B4  ML-DSA-44   EK
+ *   0x810100B5  ML-DSA-65   EK
+ *   0x810100B6  ML-DSA-87   EK
+ *
+ * AK range (Owner hierarchy, pre-V2.7, kept for attestation-xcheck):
+ *   0x810100A1  ML-DSA-65 AK (allowExternalMu=YES)
+ *   0x810100A2  ML-DSA-44 AK
+ *   0x810100A3  ML-DSA-87 AK
+ */
+#define TPM2_EK_MLKEM768_HANDLE       0x810100A0  /* ML-KEM-768 EK, V2.7 compliant */
+#define TPM2_EK_MLDSA65_HANDLE        0x810100A1  /* ML-DSA-65 AK (Owner, NOT V2.7 EK) */
+#define TPM2_EK_MLDSA44_HANDLE        0x810100A2
+#define TPM2_EK_MLDSA87_HANDLE        0x810100A3
+
+#define TPM2_V2P7_EK_MLKEM512_HANDLE  0x810100B0  /* V2.7 ML-KEM-512  EK */
+#define TPM2_V2P7_EK_MLKEM1024_HANDLE 0x810100B2  /* V2.7 ML-KEM-1024 EK */
+#define TPM2_V2P7_EK_MLDSA44_HANDLE   0x810100B4  /* V2.7 ML-DSA-44   EK */
+#define TPM2_V2P7_EK_MLDSA65_HANDLE   0x810100B5  /* V2.7 ML-DSA-65   EK */
+#define TPM2_V2P7_EK_MLDSA87_HANDLE   0x810100B6  /* V2.7 ML-DSA-87   EK */
 
 /* PQC EK/AK NV indices — pqctoday-tpm internal allocation */
 #define TPM2_NV_INDEX_MLKEM768_EKTEMPLATE 0x01c000A1
@@ -1234,39 +1258,168 @@ err_too_short_pqc:
     return 1;
 }
 
-/* Create ML-KEM-768 EK in Endorsement hierarchy */
+/* ════════════════════════════════════════════════════════════════════════
+ * V2.7 RC1 PQC EK templates — TCG EK Credential Profile §5.4.6.5–6
+ * Tables 13/14. Each template MUST byte-encode exactly per the spec; the
+ * `make ek-conformance-xcheck` runtime test re-reads the EK via
+ * TPM2_ReadPublic and diffs the marshalled TPMT_PUBLIC against hand-encoded
+ * references in tests/compliance/vectors/v2p7-ek-templates/.
+ *
+ * Common shape (Tables 7, 13, 14):
+ *   objectAttributes = 0x000300B2 (Storage)  or  0x000500B2 (Signing)
+ *   authPolicy       = 32/48/64-byte PolicyB SHA-256/384/512 per nameAlg
+ *   hierarchy        = TPM_RH_ENDORSEMENT   (EKs live in Endorsement)
+ *   unique.size      = 0 (Empty)
+ *
+ * Note: the existing 0x810100A1/A2/A3 ML-DSA AKs (Owner hierarchy, restricted+
+ * sign, allowExternalMu=YES) are SEPARATE from these EKs — they coexist for
+ * different use cases. The handles below (B0/B2/B4/B5/B6) are EK-only.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* keyflags for V2.7 Storage EK: fixedTPM | fixedParent | sensitiveDataOrigin |
+ * userWithAuth | adminWithPolicy | restricted | decrypt = 0x000300B2 */
+#define V2P7_EK_KEYFLAGS_STORAGE 0x000300B2u
+/* keyflags for V2.7 Signing EK: same bits except `sign` (bit 18) instead of
+ * `decrypt` (bit 17) = 0x000500B2 */
+#define V2P7_EK_KEYFLAGS_SIGNING 0x000500B2u
+
+/* Create ML-KEM-512 EK (Storage) in Endorsement hierarchy — V2.7 Table 13.
+ *   nameAlg = SHA-256, AES-128-CFB, parmSet = TPM_MLKEM_512,
+ *   authPolicy = PolicyBSHA256 (32 B). */
+static int swtpm_tpm2_createprimary_ek_mlkem512(struct swtpm *self, uint32_t *curr_handle,
+                                                unsigned char *ektemplate, size_t *ektemplate_len,
+                                                gchar **ekparam, const gchar **key_description)
+{
+    const unsigned char parms[] = {
+        AS2BE(TPM2_ALG_AES), AS2BE(128), AS2BE(TPM2_ALG_CFB), AS2BE(TPM2_MLKEM_512),
+    };
+    size_t off = 30 + TCG_POLICYB_SHA256_SIZE + sizeof(parms);
+    if (key_description) *key_description = "mlkem512";
+    return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_ENDORSEMENT,
+                                        TPM2_ALG_MLKEM, TPM2_ALG_SHA256,
+                                        V2P7_EK_KEYFLAGS_STORAGE,
+                                        tcg_policyB_sha256, TCG_POLICYB_SHA256_SIZE,
+                                        parms, sizeof(parms),
+                                        800,
+                                        off, curr_handle,
+                                        ektemplate, ektemplate_len, ekparam, key_description);
+}
+
+/* Create ML-KEM-768 EK (Storage) in Endorsement hierarchy — V2.7 Table 13.
+ *   nameAlg = SHA-384, AES-256-CFB, parmSet = TPM_MLKEM_768,
+ *   authPolicy = PolicyBSHA384 (48 B).
+ *
+ * Pre-V2.7 the template had SHA-256 nameAlg, AES-128, empty authPolicy and
+ * keyflags 0x000300F2 (noDA SET). The V2.7 RC1 template tightens all four. */
 static int swtpm_tpm2_createprimary_ek_mlkem768(struct swtpm *self, uint32_t *curr_handle,
                                                 unsigned char *ektemplate, size_t *ektemplate_len,
                                                 gchar **ekparam, const gchar **key_description)
 {
-    /* keyflags: fixedTPM, sensitiveDataOrigin, userWithAuth, adminWithPolicy,
-     *           noDA, restricted, decrypt — matches ECC EK restricted+decrypt profile */
-    unsigned int keyflags = 0x000300f2;
-    const unsigned char authpolicy[0] = {};
-    /* TPMS_MLKEM_PARMS (V1.85 RC4 Table 231): { symmetric, parameterSet }.
-     * Restricted decrypt EK requires a real symmetric algorithm — use
-     * AES-128-CFB to match the RSA/ECC EK convention.
-     *   sym.algorithm=AES(2) + sym.keyBits.aes=128(2) + sym.mode.aes=CFB(2) +
-     *   parameterSet(2) = 8 bytes total. */
     const unsigned char parms[] = {
-        AS2BE(TPM2_ALG_AES),
-        AS2BE(128),
-        AS2BE(TPM2_ALG_CFB),
-        AS2BE(TPM2_MLKEM_768),
+        AS2BE(TPM2_ALG_AES), AS2BE(256), AS2BE(TPM2_ALG_CFB), AS2BE(TPM2_MLKEM_768),
     };
-    /* off = 10(hdr)+4(handle)+4(paramSize)+2(outPublic.size)+2(type)+2(nameAlg)+
-     *       4(attrs)+2(authPolicy.size=0)+8(parms) = 38 */
-    size_t off = 30 + sizeof(parms);
-
-    if (key_description)
-        *key_description = "mlkem768";
-
+    size_t off = 30 + TCG_POLICYB_SHA384_SIZE + sizeof(parms);
+    if (key_description) *key_description = "mlkem768";
     return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_ENDORSEMENT,
-                                        TPM2_ALG_MLKEM, TPM2_ALG_SHA256,
-                                        keyflags,
-                                        authpolicy, sizeof(authpolicy),
+                                        TPM2_ALG_MLKEM, TPM2_ALG_SHA384,
+                                        V2P7_EK_KEYFLAGS_STORAGE,
+                                        tcg_policyB_sha384, TCG_POLICYB_SHA384_SIZE,
                                         parms, sizeof(parms),
                                         1184,
+                                        off, curr_handle,
+                                        ektemplate, ektemplate_len, ekparam, key_description);
+}
+
+/* Create ML-KEM-1024 EK (Storage) in Endorsement hierarchy — V2.7 Table 13.
+ *   nameAlg = SHA-512, AES-256-CFB, parmSet = TPM_MLKEM_1024,
+ *   authPolicy = PolicyBSHA512 (64 B). */
+static int swtpm_tpm2_createprimary_ek_mlkem1024(struct swtpm *self, uint32_t *curr_handle,
+                                                 unsigned char *ektemplate, size_t *ektemplate_len,
+                                                 gchar **ekparam, const gchar **key_description)
+{
+    const unsigned char parms[] = {
+        AS2BE(TPM2_ALG_AES), AS2BE(256), AS2BE(TPM2_ALG_CFB), AS2BE(TPM2_MLKEM_1024),
+    };
+    size_t off = 30 + TCG_POLICYB_SHA512_SIZE + sizeof(parms);
+    if (key_description) *key_description = "mlkem1024";
+    return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_ENDORSEMENT,
+                                        TPM2_ALG_MLKEM, TPM2_ALG_SHA512,
+                                        V2P7_EK_KEYFLAGS_STORAGE,
+                                        tcg_policyB_sha512, TCG_POLICYB_SHA512_SIZE,
+                                        parms, sizeof(parms),
+                                        1568,
+                                        off, curr_handle,
+                                        ektemplate, ektemplate_len, ekparam, key_description);
+}
+
+/* Create ML-DSA-44 EK (Signing) in Endorsement hierarchy — V2.7 Table 14.
+ *   nameAlg = SHA-256, parmSet = TPM_MLDSA_44, allowExternalMu = NO,
+ *   authPolicy = PolicyBSHA256 (32 B). */
+static int swtpm_tpm2_createprimary_ek_mldsa44(struct swtpm *self, uint32_t *curr_handle,
+                                               unsigned char *ektemplate, size_t *ektemplate_len,
+                                               gchar **ekparam, const gchar **key_description)
+{
+    const unsigned char parms[] = {
+        AS2BE(TPM2_MLDSA_44),
+        0x00,  /* allowExternalMu = NO (V2.7 Table 14 mandatory) */
+    };
+    size_t off = 30 + TCG_POLICYB_SHA256_SIZE + sizeof(parms);
+    if (key_description) *key_description = "mldsa44-ek";
+    return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_ENDORSEMENT,
+                                        TPM2_ALG_MLDSA, TPM2_ALG_SHA256,
+                                        V2P7_EK_KEYFLAGS_SIGNING,
+                                        tcg_policyB_sha256, TCG_POLICYB_SHA256_SIZE,
+                                        parms, sizeof(parms),
+                                        1312,
+                                        off, curr_handle,
+                                        ektemplate, ektemplate_len, ekparam, key_description);
+}
+
+/* Create ML-DSA-65 EK (Signing) in Endorsement hierarchy — V2.7 Table 14.
+ *   nameAlg = SHA-384, parmSet = TPM_MLDSA_65, allowExternalMu = NO,
+ *   authPolicy = PolicyBSHA384 (48 B).
+ *
+ * NOTE: separate from the ML-DSA-65 AK at 0x810100A1 (Owner hierarchy,
+ * allowExternalMu=YES, used for attestation-xcheck). Both coexist. */
+static int swtpm_tpm2_createprimary_ek_mldsa65(struct swtpm *self, uint32_t *curr_handle,
+                                               unsigned char *ektemplate, size_t *ektemplate_len,
+                                               gchar **ekparam, const gchar **key_description)
+{
+    const unsigned char parms[] = {
+        AS2BE(TPM2_MLDSA_65),
+        0x00,
+    };
+    size_t off = 30 + TCG_POLICYB_SHA384_SIZE + sizeof(parms);
+    if (key_description) *key_description = "mldsa65-ek";
+    return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_ENDORSEMENT,
+                                        TPM2_ALG_MLDSA, TPM2_ALG_SHA384,
+                                        V2P7_EK_KEYFLAGS_SIGNING,
+                                        tcg_policyB_sha384, TCG_POLICYB_SHA384_SIZE,
+                                        parms, sizeof(parms),
+                                        1952,
+                                        off, curr_handle,
+                                        ektemplate, ektemplate_len, ekparam, key_description);
+}
+
+/* Create ML-DSA-87 EK (Signing) in Endorsement hierarchy — V2.7 Table 14.
+ *   nameAlg = SHA-512, parmSet = TPM_MLDSA_87, allowExternalMu = NO,
+ *   authPolicy = PolicyBSHA512 (64 B). */
+static int swtpm_tpm2_createprimary_ek_mldsa87(struct swtpm *self, uint32_t *curr_handle,
+                                               unsigned char *ektemplate, size_t *ektemplate_len,
+                                               gchar **ekparam, const gchar **key_description)
+{
+    const unsigned char parms[] = {
+        AS2BE(TPM2_MLDSA_87),
+        0x00,
+    };
+    size_t off = 30 + TCG_POLICYB_SHA512_SIZE + sizeof(parms);
+    if (key_description) *key_description = "mldsa87-ek";
+    return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_ENDORSEMENT,
+                                        TPM2_ALG_MLDSA, TPM2_ALG_SHA512,
+                                        V2P7_EK_KEYFLAGS_SIGNING,
+                                        tcg_policyB_sha512, TCG_POLICYB_SHA512_SIZE,
+                                        parms, sizeof(parms),
+                                        2592,
                                         off, curr_handle,
                                         ektemplate, ektemplate_len, ekparam, key_description);
 }
@@ -1366,13 +1519,46 @@ static int swtpm_tpm2_createprimary_ak_mldsa87(struct swtpm *self, uint32_t *cur
                                         ektemplate, ektemplate_len, ekparam, key_description);
 }
 
+/* Helper: create + persist a V2.7 EK, log result, flush. Used for the 5 NEW
+ * EKs added in Phase B step 4 (the existing ML-KEM-768 + AKs keep their
+ * verbose blocks to preserve mldsa_akparam capture for the X.509 cert path). */
+typedef int (*pqc_ek_creator_fn)(struct swtpm *, uint32_t *, unsigned char *,
+                                 size_t *, gchar **, const gchar **);
+static int swtpm_tpm2_provision_v2p7_ek(struct swtpm *self,
+                                        pqc_ek_creator_fn creator,
+                                        uint32_t persistent_handle,
+                                        const char *label)
+{
+    uint32_t curr_handle;
+    unsigned char ektemplate[128];  /* V2.7 ML-KEM-1024 EK = 84 B, ML-DSA-87 EK = 79 B */
+    size_t ektemplate_len = sizeof(ektemplate);
+    const gchar *desc = NULL;
+    int ret = creator(self, &curr_handle, ektemplate, &ektemplate_len, NULL, &desc);
+    if (ret != 0) {
+        logerr(self->logfile, "V2.7 %s EK CreatePrimary failed\n", label);
+        return 1;
+    }
+    ret = swtpm_tpm2_evictcontrol(self, curr_handle, persistent_handle);
+    if (ret != 0) {
+        logit(self->logfile,
+              "Note: V2.7 %s EK persistence skipped (handle 0x%x; PQC EK persistent "
+              "range not normatively assigned by V2.7 RC1).\n", label, persistent_handle);
+    } else {
+        logit(self->logfile,
+              "Successfully created V2.7 %s EK with handle 0x%x.\n",
+              label, persistent_handle);
+    }
+    swtpm_tpm2_flushcontext(self, curr_handle);
+    return 0;
+}
+
 /* Create, evict, and optionally store templates for both PQC keys */
 static int swtpm_tpm2_create_pqc_eks(struct swtpm *self, gboolean lock_nvram,
                                      gchar **mlkem_ekparam, gchar **mldsa_akparam)
 {
     uint32_t curr_handle;
     int ret;
-    unsigned char ektemplate[64];
+    unsigned char ektemplate[128];  /* Bumped from 64 to fit V2.7 ML-KEM-768 EK (68 B) + headroom */
     size_t ektemplate_len;
     const gchar *key_description = NULL;
 
@@ -1457,6 +1643,26 @@ static int swtpm_tpm2_create_pqc_eks(struct swtpm *self, gboolean lock_nvram,
               TPM2_EK_MLDSA87_HANDLE);
     }
     swtpm_tpm2_flushcontext(self, curr_handle);
+
+    /* ── V2.7 RC1 EKs (Endorsement hierarchy, Tables 13/14) ──────────────
+     * The ML-KEM-768 EK provisioned above (handle 0x810100A0) is already
+     * V2.7-compliant. Provision the remaining 5 mandatory EKs here.
+     * Phase B step 4 of issue #2 (G7-A). */
+    if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mlkem512,
+                                     TPM2_V2P7_EK_MLKEM512_HANDLE, "ML-KEM-512") != 0)
+        return 1;
+    if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mlkem1024,
+                                     TPM2_V2P7_EK_MLKEM1024_HANDLE, "ML-KEM-1024") != 0)
+        return 1;
+    if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mldsa44,
+                                     TPM2_V2P7_EK_MLDSA44_HANDLE, "ML-DSA-44") != 0)
+        return 1;
+    if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mldsa65,
+                                     TPM2_V2P7_EK_MLDSA65_HANDLE, "ML-DSA-65") != 0)
+        return 1;
+    if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mldsa87,
+                                     TPM2_V2P7_EK_MLDSA87_HANDLE, "ML-DSA-87") != 0)
+        return 1;
 
     (void)lock_nvram;  /* NV template storage pending TCG IWG PQC provisioning spec */
     return 0;

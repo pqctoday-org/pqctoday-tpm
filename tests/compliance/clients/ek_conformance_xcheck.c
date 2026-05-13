@@ -100,10 +100,40 @@ static void hex_diff(const unsigned char *got, size_t gotLen,
         printf("           length divergence: got %zu B, want %zu B\n", gotLen, wantLen);
 }
 
+/* Expected `unique` (public-key) sizes per parameter set.
+ *
+ * Primary-source citations (cached locally in docs/standards/):
+ *   docs/standards/NIST.FIPS.203.pdf Table 3 p.39 — ML-KEM encapsulation-key sizes
+ *   docs/standards/NIST.FIPS.204.pdf Table 2 p.16 — ML-DSA public-key sizes
+ *
+ * Mirrored into docs/TPMdocextract.md §3 (ML-KEM) and §4 (ML-DSA) for
+ * offline reference. TCG TPM Library Part 2 Tables 204/207 carry the same
+ * numbers; FIPS is the upstream authority. */
+static unsigned expected_unique_size(int isMlkem, int paramSet)
+{
+    if (isMlkem) {
+        /* FIPS 203 Table 3 — ML-KEM encapsulation key (public key) sizes. */
+        switch (paramSet) {
+            case 1: return 800;   /* ML-KEM-512 */
+            case 2: return 1184;  /* ML-KEM-768 */
+            case 3: return 1568;  /* ML-KEM-1024 */
+        }
+    } else {
+        /* FIPS 204 Table 2 — ML-DSA public key sizes. */
+        switch (paramSet) {
+            case 1: return 1312;  /* ML-DSA-44 */
+            case 2: return 1952;  /* ML-DSA-65 */
+            case 3: return 2592;  /* ML-DSA-87 */
+        }
+    }
+    return 0;
+}
+
 static void check_one(WOLFTPM2_DEV *dev,
                       const char *name,
                       TPM_HANDLE handle,
-                      const unsigned char *expect, size_t expectLen)
+                      const unsigned char *expect, size_t expectLen,
+                      int isMlkem, int paramSet)
 {
     ReadPublic_In  in;
     ReadPublic_Out out;
@@ -113,7 +143,6 @@ static void check_one(WOLFTPM2_DEV *dev,
 
     int rc = TPM2_ReadPublic(&in, &out);
     if (rc != TPM_RC_SUCCESS) {
-        /* TPM_RC_HANDLE = 0x18B — handle not provisioned on this TPM */
         if (rc == (TPM_RC_HANDLE | TPM_RC_1)) {
             rskip("%s @ 0x%08x — handle not provisioned", name, (unsigned)handle);
         } else {
@@ -123,21 +152,63 @@ static void check_one(WOLFTPM2_DEV *dev,
         return;
     }
 
-    unsigned char got[512];
+    unsigned char got[4096];
     size_t        gotLen;
     if (marshal_tpmt_public(&out.outPublic, got, sizeof(got), &gotLen) != 0) {
-        rfail("%s — marshal failed", name);
+        rfail("%s — marshal failed (readback too large for buffer)", name);
         return;
     }
 
-    if (gotLen == expectLen && memcmp(got, expect, expectLen) == 0) {
-        rpass("%s @ 0x%08x — TPMT_PUBLIC byte-exact match (%zu B) vs V2.7 Table 13/14",
-              name, (unsigned)handle, gotLen);
-    } else {
-        rfail("%s @ 0x%08x — TPMT_PUBLIC mismatch (got %zu B, want %zu B)",
-              name, (unsigned)handle, gotLen, expectLen);
-        hex_diff(got, gotLen, expect, expectLen);
+    /* Two-part rigorous check per V2.7 Tables 13/14:
+     *
+     * 1. Template-fixed prefix (everything except `unique`) must byte-equal
+     *    the V2.7 reference. The reference includes a trailing 2-byte
+     *    unique.size=0 from the *input template*; the readback contains
+     *    unique.size=FIPS-pubkey-size with the generated pubkey filling
+     *    `buffer`. So strip the last 2 bytes off the reference, and look
+     *    at the corresponding prefix of the readback.
+     *
+     * 2. The readback's unique.size MUST equal the FIPS 203/204 pubkey
+     *    size for the variant — proves the TPM actually generated the
+     *    correct-sized public key (no stubs, no zero fill).
+     */
+    size_t prefixLen = expectLen - 2;  /* drop unique.size=0 sentinel */
+    if (gotLen < prefixLen) {
+        rfail("%s @ 0x%08x — readback %zu B shorter than V2.7 template prefix %zu B",
+              name, (unsigned)handle, gotLen, prefixLen);
+        hex_diff(got, gotLen, expect, prefixLen);
+        return;
     }
+    if (memcmp(got, expect, prefixLen) != 0) {
+        rfail("%s @ 0x%08x — V2.7 template prefix mismatch (first %zu B)",
+              name, (unsigned)handle, prefixLen);
+        hex_diff(got, prefixLen, expect, prefixLen);
+        return;
+    }
+
+    /* Now check unique.size on the wolfTPM-parsed struct — independent
+     * of how the marshal handled the unique buffer. wolfTPM stores it in
+     * the typed unique union: pub.publicArea.unique.mlkem.size  for ML-KEM,
+     * pub.publicArea.unique.mldsa.size for ML-DSA. */
+    unsigned expected_pk = expected_unique_size(isMlkem, paramSet);
+    unsigned got_pk;
+#ifdef WOLFTPM_V185
+    if (isMlkem) {
+        got_pk = out.outPublic.publicArea.unique.mlkem.size;
+    } else {
+        got_pk = out.outPublic.publicArea.unique.mldsa.size;
+    }
+#else
+    got_pk = 0;  /* should never compile-pass without V185 */
+#endif
+    if (got_pk != expected_pk) {
+        rfail("%s @ 0x%08x — unique.size = %u, FIPS expects %u",
+              name, (unsigned)handle, got_pk, expected_pk);
+        return;
+    }
+
+    rpass("%s @ 0x%08x — V2.7 template prefix (%zu B) bit-exact + FIPS unique.size=%u",
+          name, (unsigned)handle, prefixLen, expected_pk);
 }
 
 /* Persistent handle assignments (pqctoday-tpm internal — V2.7 RC1 does not
@@ -167,14 +238,14 @@ int main(void)
     putchar('\n');
 
     printf("=== ML-KEM Storage EKs (V2.7 §5.4.6.5 Table 13) ===\n");
-    check_one(&dev, "ML-KEM-512  EK", HANDLE_EK_MLKEM_512,  v2p7_ek_mlkem512,  V2P7_EK_MLKEM512_LEN);
-    check_one(&dev, "ML-KEM-768  EK", HANDLE_EK_MLKEM_768,  v2p7_ek_mlkem768,  V2P7_EK_MLKEM768_LEN);
-    check_one(&dev, "ML-KEM-1024 EK", HANDLE_EK_MLKEM_1024, v2p7_ek_mlkem1024, V2P7_EK_MLKEM1024_LEN);
+    check_one(&dev, "ML-KEM-512  EK", HANDLE_EK_MLKEM_512,  v2p7_ek_mlkem512,  V2P7_EK_MLKEM512_LEN,  1, 1);
+    check_one(&dev, "ML-KEM-768  EK", HANDLE_EK_MLKEM_768,  v2p7_ek_mlkem768,  V2P7_EK_MLKEM768_LEN,  1, 2);
+    check_one(&dev, "ML-KEM-1024 EK", HANDLE_EK_MLKEM_1024, v2p7_ek_mlkem1024, V2P7_EK_MLKEM1024_LEN, 1, 3);
 
     printf("\n=== ML-DSA Signing EKs (V2.7 §5.4.6.6 Table 14) ===\n");
-    check_one(&dev, "ML-DSA-44 EK", HANDLE_EK_MLDSA_44, v2p7_ek_mldsa44, V2P7_EK_MLDSA44_LEN);
-    check_one(&dev, "ML-DSA-65 EK", HANDLE_EK_MLDSA_65, v2p7_ek_mldsa65, V2P7_EK_MLDSA65_LEN);
-    check_one(&dev, "ML-DSA-87 EK", HANDLE_EK_MLDSA_87, v2p7_ek_mldsa87, V2P7_EK_MLDSA87_LEN);
+    check_one(&dev, "ML-DSA-44 EK", HANDLE_EK_MLDSA_44, v2p7_ek_mldsa44, V2P7_EK_MLDSA44_LEN, 0, 1);
+    check_one(&dev, "ML-DSA-65 EK", HANDLE_EK_MLDSA_65, v2p7_ek_mldsa65, V2P7_EK_MLDSA65_LEN, 0, 2);
+    check_one(&dev, "ML-DSA-87 EK", HANDLE_EK_MLDSA_87, v2p7_ek_mldsa87, V2P7_EK_MLDSA87_LEN, 0, 3);
 
     printf("\n=== Summary ===\n");
     printf("  %d passed, %d failed, %d skipped (handles not provisioned)\n",
