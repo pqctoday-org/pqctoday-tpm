@@ -477,10 +477,14 @@ static const struct swtpm_cops swtpm_cops = {
  * (no TCG IWG provisioning spec for PQC EKs published yet) */
 #define TPM2_EK_MLKEM768_HANDLE      0x810100A0
 #define TPM2_EK_MLDSA65_HANDLE       0x810100A1
+#define TPM2_EK_MLDSA44_HANDLE       0x810100A2
+#define TPM2_EK_MLDSA87_HANDLE       0x810100A3
 
 /* PQC EK/AK NV indices — pqctoday-tpm internal allocation */
 #define TPM2_NV_INDEX_MLKEM768_EKTEMPLATE 0x01c000A1
 #define TPM2_NV_INDEX_MLDSA65_AKTEMPLATE  0x01c000A3
+#define TPM2_NV_INDEX_MLDSA44_AKTEMPLATE  0x01c000A4
+#define TPM2_NV_INDEX_MLDSA87_AKTEMPLATE  0x01c000A5
 
 #define TPM2_DURATION_SHORT     2000 /* ms */
 #define TPM2_DURATION_MEDIUM    7500 /* ms */
@@ -1302,6 +1306,66 @@ static int swtpm_tpm2_createprimary_ak_mldsa65(struct swtpm *self, uint32_t *cur
                                         ektemplate, ektemplate_len, ekparam, key_description);
 }
 
+/* Create ML-DSA-44 AK (restricted signing) in Owner hierarchy — FIPS 204 sizes:
+ *   pubkey 1312 B, signature 2420 B. Same template shape as ML-DSA-65, only
+ *   parameterSet differs. Used by the attestation KAT and dual-verifier xcheck
+ *   for ML-DSA-44 coverage (G8). */
+static int swtpm_tpm2_createprimary_ak_mldsa44(struct swtpm *self, uint32_t *curr_handle,
+                                               unsigned char *ektemplate, size_t *ektemplate_len,
+                                               gchar **ekparam, const gchar **key_description)
+{
+    unsigned int keyflags = 0x000500f2;
+    const unsigned char authpolicy[0] = {};
+    const unsigned char parms[] = {
+        AS2BE(TPM2_MLDSA_44),
+        0x01,
+    };
+    size_t off = 30 + sizeof(parms);
+
+    if (key_description)
+        *key_description = "mldsa44";
+
+    return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_OWNER,
+                                        TPM2_ALG_MLDSA, TPM2_ALG_SHA256,
+                                        keyflags,
+                                        authpolicy, sizeof(authpolicy),
+                                        parms, sizeof(parms),
+                                        1312,
+                                        off, curr_handle,
+                                        ektemplate, ektemplate_len, ekparam, key_description);
+}
+
+/* Create ML-DSA-87 AK (restricted signing) in Owner hierarchy — FIPS 204 sizes:
+ *   pubkey 2592 B, signature 4627 B. Same template shape as ML-DSA-65, only
+ *   parameterSet differs. */
+static int swtpm_tpm2_createprimary_ak_mldsa87(struct swtpm *self, uint32_t *curr_handle,
+                                               unsigned char *ektemplate, size_t *ektemplate_len,
+                                               gchar **ekparam, const gchar **key_description)
+{
+    unsigned int keyflags = 0x000500f2;
+    const unsigned char authpolicy[0] = {};
+    const unsigned char parms[] = {
+        AS2BE(TPM2_MLDSA_87),
+        0x01,
+    };
+    size_t off = 30 + sizeof(parms);
+
+    if (key_description)
+        *key_description = "mldsa87";
+
+    /* nameAlg = SHA256 across all three AK templates for consistency.
+     * Stronger nameAlgs (SHA-384 for ML-DSA-87 to match its security level)
+     * are a separate hardening item — pick the same hash everywhere first. */
+    return swtpm_tpm2_createprimary_pqc(self, TPM2_RH_OWNER,
+                                        TPM2_ALG_MLDSA, TPM2_ALG_SHA256,
+                                        keyflags,
+                                        authpolicy, sizeof(authpolicy),
+                                        parms, sizeof(parms),
+                                        2592,
+                                        off, curr_handle,
+                                        ektemplate, ektemplate_len, ekparam, key_description);
+}
+
 /* Create, evict, and optionally store templates for both PQC keys */
 static int swtpm_tpm2_create_pqc_eks(struct swtpm *self, gboolean lock_nvram,
                                      gchar **mlkem_ekparam, gchar **mldsa_akparam)
@@ -1351,6 +1415,46 @@ static int swtpm_tpm2_create_pqc_eks(struct swtpm *self, gboolean lock_nvram,
     } else {
         logit(self->logfile, "Successfully created ML-DSA-65 AK with handle 0x%x.\n",
               TPM2_EK_MLDSA65_HANDLE);
+    }
+    swtpm_tpm2_flushcontext(self, curr_handle);
+
+    /* ML-DSA-44 AK in Owner hierarchy (smaller variant for attestation KAT
+     * coverage; pubkey not captured back since the trust-anchor flow only
+     * exposes the ML-DSA-65 AK X.509 cert). */
+    ektemplate_len = sizeof(ektemplate);
+    key_description = NULL;
+    ret = swtpm_tpm2_createprimary_ak_mldsa44(self, &curr_handle,
+                                              ektemplate, &ektemplate_len,
+                                              NULL, &key_description);
+    if (ret != 0)
+        return 1;
+    ret = swtpm_tpm2_evictcontrol(self, curr_handle, TPM2_EK_MLDSA44_HANDLE);
+    if (ret != 0) {
+        logit(self->logfile,
+              "Note: ML-DSA-44 AK persistence skipped (handle 0x%x; PQC AK persistent "
+              "range pending TCG IWG spec).\n", TPM2_EK_MLDSA44_HANDLE);
+    } else {
+        logit(self->logfile, "Successfully created ML-DSA-44 AK with handle 0x%x.\n",
+              TPM2_EK_MLDSA44_HANDLE);
+    }
+    swtpm_tpm2_flushcontext(self, curr_handle);
+
+    /* ML-DSA-87 AK in Owner hierarchy (largest variant). */
+    ektemplate_len = sizeof(ektemplate);
+    key_description = NULL;
+    ret = swtpm_tpm2_createprimary_ak_mldsa87(self, &curr_handle,
+                                              ektemplate, &ektemplate_len,
+                                              NULL, &key_description);
+    if (ret != 0)
+        return 1;
+    ret = swtpm_tpm2_evictcontrol(self, curr_handle, TPM2_EK_MLDSA87_HANDLE);
+    if (ret != 0) {
+        logit(self->logfile,
+              "Note: ML-DSA-87 AK persistence skipped (handle 0x%x; PQC AK persistent "
+              "range pending TCG IWG spec).\n", TPM2_EK_MLDSA87_HANDLE);
+    } else {
+        logit(self->logfile, "Successfully created ML-DSA-87 AK with handle 0x%x.\n",
+              TPM2_EK_MLDSA87_HANDLE);
     }
     swtpm_tpm2_flushcontext(self, curr_handle);
 
