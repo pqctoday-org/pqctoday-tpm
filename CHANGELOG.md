@@ -6,6 +6,110 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-13
+
+### V2.7 RC1 PQC EK Credential Profile — byte-exact conformance
+
+Closes [`#2`](https://github.com/pqctoday-org/pqctoday-tpm/issues/2) (G7-A)
+Phase B. We are no longer "blocked on external TCG spec" — TCG published
+**EK Credential Profile V2.7 RC1 on 2025-11-07** with full PQC EK templates
+for ML-KEM (Storage) and ML-DSA (Signing). This release brings pqctoday-tpm
+byte-exact compliant with the new mandatory templates.
+
+#### Cited spec (cached locally in `docs/standards/`)
+
+- **TCG EK Credential Profile V2.7 RC1** (2025-11-07) — Tables 7, 8, 13, 14;
+  §5.3.1 NV index allocations; §6.1.3 + §6.2.x algorithm identifiers.
+- **NIST FIPS 203** (Aug 2024) — Table 3 (Sizes in bytes of keys and
+  ciphertexts of ML-KEM, p.39). New to repo.
+- **NIST FIPS 204** (Aug 2024) — Table 2 (Sizes in bytes of keys and
+  signatures of ML-DSA, p.16). New to repo.
+- Full spec extracts into `docs/TPMdocextract.md` §3 (FIPS 203 sizes), §4
+  (FIPS 204 sizes), §17 (V2.7 EK Credential Profile — 9 subsections,
+  Tables 7, 8, 13, 14, §3.1.5 TPMPQCVersion, §3.1.4 EKCredentialAlgorithmList,
+  §5.3.1 NV cert indices, §A.1.3–5 Policy Indexes).
+
+#### What works end-to-end
+
+`make ek-conformance-xcheck` — **6 PASS / 0 FAIL**:
+
+```text
+ML-KEM-512  EK @ 0x810100b0 — template prefix (50 B) bit-exact + FIPS unique.size=800
+ML-KEM-768  EK @ 0x810100a0 — template prefix (66 B) bit-exact + FIPS unique.size=1184
+ML-KEM-1024 EK @ 0x810100b2 — template prefix (82 B) bit-exact + FIPS unique.size=1568
+ML-DSA-44   EK @ 0x810100b4 — template prefix (45 B) bit-exact + FIPS unique.size=1312
+ML-DSA-65   EK @ 0x810100b5 — template prefix (61 B) bit-exact + FIPS unique.size=1952
+ML-DSA-87   EK @ 0x810100b6 — template prefix (77 B) bit-exact + FIPS unique.size=2592
+```
+
+Each PASS is two independent assertions:
+
+1. V2.7 RC1 Tables 13/14 template-fixed prefix **byte-exact** (every byte
+   the spec mandates: type, nameAlg, objectAttributes, authPolicy, parms).
+2. **FIPS 203 Table 3 / FIPS 204 Table 2** public-key size verified —
+   proves the TPM generated a real key of the right size, not a stub.
+
+Pipeline: real `swtpm` + `libtpms` provision the EKs; wolfTPM v4.0.0 client
+reads back via `TPM2_ReadPublic`; both halves of the assertion run inside a
+single C client. Independent stack at every layer.
+
+#### Spec coverage (V2.7 RC1)
+
+- Part 2 §5.4.5.1 Table 7 — Object Attributes (Storage `0x000300B2`,
+  Signing `0x000500B2`)
+- Part 2 §5.4.5.2 Table 8 — PolicyB digests (SHA-256/384/512, 32/48/64 B)
+- Part 2 §5.4.6.5 Table 13 — ML-KEM EK templates (3 variants)
+- Part 2 §5.4.6.6 Table 14 — ML-DSA EK templates (3 variants)
+- Part 1 §16.2 + Table 33 — restricted-AK/EK ADMIN/USER auth roles
+- FIPS 203 — ML-KEM parameter-set sizes
+- FIPS 204 — ML-DSA parameter-set sizes
+
+#### Code changes
+
+- `swtpm/src/swtpm_setup/swtpm.c` — **6 new EK creator functions** in the
+  Endorsement hierarchy with V2.7 byte-encoded `TPMT_PUBLIC` (correct
+  algorithm, per-variant nameAlg SHA-256/384/512, attributes-storage or
+  -signing, PolicyB authPolicy, `allowExternalMu=NO` for signing EKs).
+  New helper `swtpm_tpm2_provision_v2p7_ek` factors create+evict+log+flush.
+  ML-KEM-768 EK at `0x810100A0` tightened in place from pre-V2.7 (SHA-256,
+  AES-128, empty authPolicy, attrs `0x000300F2`) to V2.7 (SHA-384, AES-256,
+  48 B PolicyBSHA384, attrs `0x000300B2`). Five new persistent handles
+  allocated `0x810100B0/B2/B4/B5/B6`.
+- `swtpm/src/swtpm_setup/tcg_pqc_ek_constants.h` — spec-constants header
+  (PolicyB digests, 12 EK Cert NV indices, 3 Policy Index NVs).
+
+#### Test infrastructure
+
+- `tests/compliance/vectors/v2p7-ek-templates/v2p7_ek_template_vectors.h`
+  — hand-encoded reference byte vectors from V2.7 Tables 13/14 (52/68/84
+  ML-KEM, 47/63/79 ML-DSA), with `_Static_assert` size checks.
+- `tests/compliance/clients/ek_conformance_xcheck.c` — wolfTPM-driven
+  conformance client with two-part check (template prefix + FIPS unique).
+- `tests/compliance/run_ek_conformance_xcheck.sh` — full Docker wrapper.
+- `Makefile` — new `make ek-conformance-xcheck` target.
+- `.github/workflows/xcheck.yml` — runs nightly alongside wolftpm + attestation.
+- `tests/compliance/v185_compliance.sh` — 5 new source-level checks (V2.7
+  NV indices, PolicyB digests, Policy Index NVs). Score 101 → **106 PASS**.
+
+#### Cumulative conformance scorecard
+
+| Suite | Score | What |
+|---|---|---|
+| `v185_compliance.sh` | 106/0 | V1.85 RC4 + V2.7 RC1 source constants |
+| `make wolftpm-xcheck` | 29/0 | Runtime ML-KEM/ML-DSA crypto interop |
+| `make attestation-xcheck` | 12/0 | TPM2_Quote/Certify dual-verified |
+| `make ek-conformance-xcheck` | **6/0** | **V2.7 EK templates byte-exact + FIPS sizes (new)** |
+| **Total** | **153/0** | Source + crypto + structural conformance |
+
+#### Remaining for full V2.7 RC1 closure
+
+- Phase B step 5 (small): extend the EK conformance client to also verify
+  `TPM2_GetName` / `qualifiedName` / hierarchy = TPM_RH_ENDORSEMENT.
+- Phase C (~1 day): X.509 PQC EK cert generation per §6.1.3 / §6.2.x with
+  NIST CSOR OIDs; populate the 12 EK cert NV slots (`0x01c00060..7a`);
+  optional `TPMPQCVersion` cert attribute.
+- Both → **v0.6.0**.
+
 ## [0.4.0] — 2026-05-13
 
 ### Post-quantum remote attestation — TPM2_Quote / TPM2_Certify with ML-DSA AK
