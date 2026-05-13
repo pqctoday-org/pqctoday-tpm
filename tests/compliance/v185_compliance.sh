@@ -555,6 +555,65 @@ else
 fi
 
 # ----------------------------------------------------------------------------
+# TCG EK Credential Profile V2.7 RC1 — Phase A constants
+# (NV indexes for PQC EK certs + Policy Index NVs + PolicyB digests)
+# Source: docs/standards/TCG-EK-Credential-Profile-...-V2p7-RC1_7November2025.pdf
+# Cross-ref: docs/TPMdocextract.md §17
+# ----------------------------------------------------------------------------
+
+section "TCG EK Credential Profile V2.7 RC1 — PQC EK constants (issue #2 Phase A)"
+
+EK_HDR="swtpm/src/swtpm_setup/tcg_pqc_ek_constants.h"
+
+if [[ ! -f "$EK_HDR" ]]; then
+    fail "$EK_HDR missing"
+else
+    # NV cert indices — Table V2.7 §5.3.1 page 47. Parallel arrays (avoid
+    # `declare -A` + `set -u` interaction that empties bash 5.2 references).
+    nv_names=(MLKEM_512 MLKEM_768 MLKEM_1024 MLKEM_512_FWL MLKEM_768_FWL MLKEM_1024_FWL
+              MLDSA_44 MLDSA_65 MLDSA_87 MLDSA_44_FWL MLDSA_65_FWL MLDSA_87_FWL)
+    nv_vals=(0x01c00060 0x01c00062 0x01c00064 0x01c00066 0x01c00068 0x01c0006a
+             0x01c00070 0x01c00072 0x01c00074 0x01c00076 0x01c00078 0x01c0007a)
+    bad=0
+    for i in "${!nv_names[@]}"; do
+        if ! grep -qiE "TCG_NV_EKCERT_${nv_names[$i]}.*${nv_vals[$i]}u" "$EK_HDR"; then
+            fail "TCG_NV_EKCERT_${nv_names[$i]} missing or wrong value (expected ${nv_vals[$i]})"
+            bad=$((bad+1))
+        fi
+    done
+    [[ "$bad" == "0" ]] && pass "12 PQC EK Cert NV indices defined exactly per V2.7 §5.3.1"
+
+    # Policy Index NVs — V2.7 §A.1.3–5
+    pi_names=(SHA256 SHA384 SHA512)
+    pi_vals=(0x01c07f01 0x01c07f02 0x01c07f03)
+    bad=0
+    for i in "${!pi_names[@]}"; do
+        if ! grep -qiE "TCG_NV_POLICY_INDEX_${pi_names[$i]}.*${pi_vals[$i]}u" "$EK_HDR"; then
+            fail "TCG_NV_POLICY_INDEX_${pi_names[$i]} missing or wrong value (expected ${pi_vals[$i]})"
+            bad=$((bad+1))
+        fi
+    done
+    [[ "$bad" == "0" ]] && pass "3 Policy Index NVs (I-1/2/3) defined exactly per V2.7 §A.1.3-5"
+
+    # PolicyB digests — Table 8 (only the first byte + size sanity to keep
+    # the script byte-light; the full digest is in the C arrays in the header).
+    grep -q "TCG_POLICYB_SHA256_SIZE 32u" "$EK_HDR" \
+        && grep -qE "0xCA, 0x3D, 0x0A, 0x99" "$EK_HDR" \
+        && pass "PolicyB SHA-256 = 32 B starting CA 3D 0A 99 (V2.7 Table 8)" \
+        || fail "PolicyB SHA-256 size or leading bytes wrong"
+
+    grep -q "TCG_POLICYB_SHA384_SIZE 48u" "$EK_HDR" \
+        && grep -qE "0xB2, 0x6E, 0x7D, 0x28" "$EK_HDR" \
+        && pass "PolicyB SHA-384 = 48 B starting B2 6E 7D 28 (V2.7 Table 8)" \
+        || fail "PolicyB SHA-384 size or leading bytes wrong"
+
+    grep -q "TCG_POLICYB_SHA512_SIZE 64u" "$EK_HDR" \
+        && grep -qE "0xB8, 0x22, 0x1C, 0xA6" "$EK_HDR" \
+        && pass "PolicyB SHA-512 = 64 B starting B8 22 1C A6 (V2.7 Table 8)" \
+        || fail "PolicyB SHA-512 size or leading bytes wrong"
+fi
+
+# ----------------------------------------------------------------------------
 # Summary
 # ----------------------------------------------------------------------------
 
