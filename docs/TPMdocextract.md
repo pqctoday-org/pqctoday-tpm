@@ -697,16 +697,228 @@ Definition of `TPMA_ALGORITHM` bits:
 
 ## 15. Attestation Commands and Structures (Part 3 & Part 2)
 
-### TPM2_Certify (Part 3 §18.2)
-Proves that an object with a specific Name is loaded in the TPM.
-- **Action:** If `signHandle` is `TPM_RH_NULL`, returns a `TPMS_ATTEST` structure and a NULL Signature. Otherwise, signs the `TPMS_ATTEST` using the key in `signHandle`.
+Full wire formats extracted from `docs/standards/TPM-2.0-Library-Part-{1,2,3}-V185-RC4.pdf`. Pulled here so any future
+PQC attestation work (G8, G9, G10 and beyond) doesn't have to re-read the PDFs.
 
-### TPM2_Quote (Part 3 §18.4)
-Quotes PCR values.
-- **Action:** Hashes the selected PCRs and signs a `TPMS_ATTEST` structure containing those PCR values using the `signHandle`.
+### 15.1 TPM2_Certify (Part 3 §18.2, p.153-154)
 
-### TPMS_ATTEST (Part 2 §10.12)
-The structure signed during attestation.
+**Purpose.** Prove that an object with a specific Name is loaded in the TPM. By certifying that the object is loaded,
+the TPM warrants that a public area with a given Name is self-consistent and associated with a valid sensitive area.
+"If a relying party has a public area that has the same Name as a Name certified with this command, then the values
+in that public area are correct." (§18.2.1)
+
+**Authorization.** `objectHandle` requires **ADMIN role**. With a policy session, the session shall have
+`policySession→commandCode == TPM_CC_Certify` — policy that grants *use* does not grant *certification*.
+
+**Object eligibility.** "The object may be any object that is loaded with TPM2_Load() or TPM2_CreatePrimary(). An
+object that only has its public area loaded cannot be certified." (§18.2.1)
+
+**NULL signing.** "If signHandle is TPM_RH_NULL, the TPMS_ATTEST structure is returned and signature is a NULL
+Signature." (§18.2.1) — useful for testing the marshal path without a sign step.
+
+#### Table 97: TPM2_Certify Command (p.154)
+
+| Type | Name | Description |
+|---|---|---|
+| `TPMI_ST_COMMAND_TAG` | tag | `TPM_ST_SESSIONS` |
+| `UINT32` | commandSize | |
+| `TPM_CC` | commandCode | `TPM_CC_Certify` |
+| `TPMI_DH_OBJECT` | `@objectHandle` | handle of the object to be certified. Auth Index 1, Auth Role **ADMIN** |
+| `TPMI_DH_OBJECT+` | `@signHandle` | handle of the key used to sign the attestation structure. Auth Index 2, Auth Role USER |
+| `TPM2B_DATA` | qualifyingData | user-provided qualifying data |
+| `TPMT_SIG_SCHEME+` | inScheme | signing scheme to use if the scheme for `signHandle` is `TPM_ALG_NULL` |
+
+#### Table 98: TPM2_Certify Response (p.154)
+
+| Type | Name | Description |
+|---|---|---|
+| `TPM_ST` | tag | see Clause 6 |
+| `UINT32` | responseSize | |
+| `TPM_RC` | responseCode | |
+| `TPM2B_ATTEST` | certifyInfo | the structure that was signed |
+| `TPMT_SIGNATURE` | signature | the signature over `certifyInfo` using the key referenced by `signHandle` |
+
+### 15.2 TPM2_Quote (Part 3 §18.4, p.157-158)
+
+**Purpose.** Quote PCR values. "The TPM will hash the list of PCR selected by PCRselect using the hash algorithm in
+the selected signing scheme. If the selected signing scheme or the scheme hash algorithm is `TPM_ALG_NULL`, then
+the TPM shall return `TPM_RC_SCHEME`." (§18.4.1)
+
+**PCR digest computation.** "The digest is computed as the hash of the concatenation of all of the digest values of
+the selected PCR. The concatenation of PCR is described in TPM 2.0 Part 1, Selecting Multiple PCR." (§18.4.1) — see
+§15.5 below for the canonical recipe.
+
+**NULL signing.** Same as Certify: "If signHandle is TPM_RH_NULL, the TPMS_ATTEST structure is returned and signature
+is a NULL Signature." (§18.4.1) — note V1.83-and-earlier returned `TPM_RC_SCHEME` in this case; V1.85 relaxed that.
+
+#### Table 101: TPM2_Quote Command (p.158)
+
+| Type | Name | Description |
+|---|---|---|
+| `TPMI_ST_COMMAND_TAG` | tag | `TPM_ST_SESSIONS` |
+| `UINT32` | commandSize | |
+| `TPM_CC` | commandCode | `TPM_CC_Quote` |
+| `TPMI_DH_OBJECT+` | `@signHandle` | handle of key that will perform signature. Auth Index 1, Auth Role USER |
+| `TPM2B_DATA` | qualifyingData | data supplied by the caller |
+| `TPMT_SIG_SCHEME+` | inScheme | signing scheme to use if the scheme for `signHandle` is `TPM_ALG_NULL` |
+| `TPML_PCR_SELECTION` | PCRselect | PCR set to quote |
+
+#### Table 102: TPM2_Quote Response (p.158)
+
+| Type | Name | Description |
+|---|---|---|
+| `TPM_ST` | tag | see Clause 6 |
+| `UINT32` | responseSize | |
+| `TPM_RC` | responseCode | |
+| `TPM2B_ATTEST` | quoted | the quoted information |
+| `TPMT_SIGNATURE` | signature | the signature over `quoted` |
+
+### 15.3 TPMS_ATTEST and the attested union (Part 2 §10.11, p.159-163)
+
+The TPM-generated structure that every attestation command signs. The signature is over the marshalled `TPMS_ATTEST`
+bytes — therefore the marshalled blob is fully deterministic given fixed inputs (key Name, qualifyingData, clockInfo,
+firmwareVersion, attested-union payload).
+
+#### Table 153: TPMS_ATTEST Structure (Part 2 §10.11.12, p.162-163)
+
+| Parameter | Type | Description |
+|---|---|---|
+| magic | `TPM_CONSTANTS32` | "the indication that this structure was created by a TPM (always `TPM_GENERATED_VALUE` = `0xFF544347`)" |
+| type | `TPMI_ST_ATTEST` | type of the attestation structure — selector for the attested union |
+| qualifiedSigner | `TPM2B_NAME` | Qualified Name of the signing key |
+| extraData | `TPM2B_DATA` | external information supplied by caller (typically `qualifyingData` echoed back) |
+| clockInfo | `TPMS_CLOCK_INFO` | Clock, resetCount, restartCount, Safe |
+| firmwareVersion | `UINT64` | TPM-vendor-specific firmware version |
+| `[type]attested` | `TPMU_ATTEST` | the type-specific attestation information (union, selected by `type`) |
+
+> **Note** (§10.11.12 narrative): "When the structure is signed by a key in the Storage hierarchy, the values of
+> `clockInfo.resetCount`, `clockInfo.restartCount`, and `firmwareVersion` are obfuscated with a per-key obfuscation
+> value." Implications for KAT reproducibility: pin the AK to a hierarchy whose values are NOT obfuscated (e.g.
+> Endorsement) **or** model the obfuscation deterministically in the test fixture.
+
+#### Table 151: TPMI_ST_ATTEST (selector values, Part 2 §10.11.10, p.162)
+
+| Value | Generated by |
+|---|---|
+| `TPM_ST_ATTEST_CERTIFY` | `TPM2_Certify()` |
+| `TPM_ST_ATTEST_QUOTE` | `TPM2_Quote()` |
+| `TPM_ST_ATTEST_SESSION_AUDIT` | `TPM2_GetSessionAuditDigest()` |
+| `TPM_ST_ATTEST_COMMAND_AUDIT` | `TPM2_GetCommandAuditDigest()` |
+| `TPM_ST_ATTEST_TIME` | `TPM2_GetTime()` |
+| `TPM_ST_ATTEST_CREATION` | `TPM2_CertifyCreation()` |
+| `TPM_ST_ATTEST_NV` | `TPM2_NV_Certify()` |
+| `TPM_ST_ATTEST_NV_DIGEST` | `TPM2_NV_Certify()` |
+
+#### Table 152: TPMU_ATTEST union (Part 2 §10.11.11, p.162)
+
+| Parameter | Type | Selector |
+|---|---|---|
+| certify | `TPMS_CERTIFY_INFO` | `TPM_ST_ATTEST_CERTIFY` |
+| creation | `TPMS_CREATION_INFO` | `TPM_ST_ATTEST_CREATION` |
+| quote | `TPMS_QUOTE_INFO` | `TPM_ST_ATTEST_QUOTE` |
+| commandAudit | `TPMS_COMMAND_AUDIT_INFO` | `TPM_ST_ATTEST_COMMAND_AUDIT` |
+| sessionAudit | `TPMS_SESSION_AUDIT_INFO` | `TPM_ST_ATTEST_SESSION_AUDIT` |
+| time | `TPMS_TIME_ATTEST_INFO` | `TPM_ST_ATTEST_TIME` |
+| nv | `TPMS_NV_CERTIFY_INFO` | `TPM_ST_ATTEST_NV` |
+| nvDigest | `TPMS_NV_DIGEST_CERTIFY_INFO` | `TPM_ST_ATTEST_NV_DIGEST` |
+
+#### Table 144: TPMS_CERTIFY_INFO (attested data for Certify, Part 2 §10.11.3, p.160)
+
+| Parameter | Type | Description |
+|---|---|---|
+| name | `TPM2B_NAME` | Name of the certified object |
+| qualifiedName | `TPM2B_NAME` | Qualified Name of the certified object |
+
+#### Table 145: TPMS_QUOTE_INFO (attested data for Quote, Part 2 §10.11.4, p.160)
+
+| Parameter | Type | Description |
+|---|---|---|
+| pcrSelect | `TPML_PCR_SELECTION` | information on algID, PCRs selected and digest |
+| pcrDigest | `TPM2B_DIGEST` | digest of the selected PCRs using the hash of the signing key |
+
+#### Table 154: TPM2B_ATTEST (Part 2 §10.11.13, p.163)
+
+| Parameter | Type | Description |
+|---|---|---|
+| size | `UINT16` | size of attestationData |
+| attestationData[size]{:sizeof(TPMS_ATTEST)} | `BYTE` | the signed structure |
+
+#### Table 141: TPMS_CLOCK_INFO (Part 2 §10.10.1, p.158)
+
+| Parameter | Type | Description |
+|---|---|---|
+| clock | `UINT64` | milliseconds since TPM powered (or last `TPM2_Clear()`); UTC convention common |
+| resetCount | `UINT32` | TPM Resets since last `TPM2_Clear()` |
+| restartCount | `UINT32` | `TPM2_Shutdown()` or `_TPM_Hash_Start` occurrences since last Reset/Clear |
+| safe | `TPMI_YES_NO` | YES iff no Clock value > current was previously reported; set to YES on `TPM2_Clear()` |
+
+### 15.4 Restricted signing keys + TPM_GENERATED_VALUE — why ML-DSA AKs work for Quote/Certify (Part 1 §22.1.2, p.189-191)
+
+**The rule** (§22.1.2 verbatim):
+
+> "A restricted signing key can only sign a digest that has been produced by the TPM. The digest can be over
+> externally supplied data or an internally generated structure. An internally generated structure that is to be
+> signed will have the characteristic `TPM_GENERATED_VALUE` as the first octets in the structure to be hashed and
+> signed. When the TPM generates a digest over externally provided data, the TPM validates that the first octets of
+> the data are not equal to the `TPM_GENERATED_VALUE`. When a digest is signed by a restricted signing key, there is
+> no ambiguity about whether or not the signed data was generated by the TPM."
+>
+> "A restricted signing key is occasionally referred to in this specification as an Attesting or Attestation Key."
+
+**Table 33 (p.190) row `sign=1, decrypt=0, restricted=1`:** "This combination indicates a key that can sign any digest
+that the TPM has created. The TPM only signs a digest over externally provided data that did not have as its first
+octets `TPM_GENERATED_VALUE`. This key can be used reliably for quoting, certifying, and signing. No signing command
+is prohibited for this type of key. Only the default schemes and modes of the object can be used."
+
+**Implication for ML-DSA AKs.** `TPMS_ATTEST.magic = TPM_GENERATED_VALUE` (0xFF544347) is the **first 4 octets** of
+every attestation blob. Therefore:
+
+- A **restricted** ML-DSA key (e.g. the AKs at `0x810100A0/A1/A2` provisioned by `swtpm_setup`) is *valid* for
+  `TPM2_Quote` / `TPM2_Certify` — and indeed is the *intended* type for these operations.
+- The restricted-AK gate in `PqcMlDsaCommands.c:54-59` correctly rejects `TPM2_SignDigest` (which can sign arbitrary
+  externally-supplied data) but **must not** block `Attest_spt.c:SignAttestInfo()`. The latter signs a TPM-generated
+  `TPMS_ATTEST` blob whose first octets are `TPM_GENERATED_VALUE` — exactly the spec-mandated condition.
+
+### 15.5 PCR digest computation for TPM2_Quote (Part 1 §14.5 + §14.6.2, p.93-94)
+
+> "When a command allows multiple PCR to be selected, a list of selectors is used. Each entry in the list consists of
+> an algorithm ID followed by a bit array. Each bit in the bit array corresponds to one PCR. If a bit is SET, then the
+> indicated PCR in the bank corresponding to the algorithm ID is selected."
+>
+> "The bit correspondence to PCR is that the bit corresponding to PCR[n] is the (n mod 8) bit in the ⌊n/8⌋ octet of the
+> array."
+>
+> "The list of selectors is processed in order. The selected PCR are concatenated, with the lowest numbered PCR in the
+> first selector being the first in the list and the highest numbered PCR in the last selector being the last."
+>
+> "TPM2_Quote() and TPM2_PolicyPCR() digest the concatenation of PCR."
+
+**Canonical recipe for `TPMS_QUOTE_INFO.pcrDigest`:**
+
+1. Filter `pcrSelect` to remove unimplemented PCR indexes (§14.5: *"No value is included in the concatenation of PCR
+   for an unimplemented PCR. It is an error if the algorithm ID selects a hash algorithm that is not implemented."*)
+2. Concatenate, in selector-order then ascending-PCR-order, the **current PCR values** (per bank, using each bank's
+   native hash output).
+3. Hash the concatenation using the **hash algorithm of the signing scheme** (NOT the bank's hash — for ML-DSA the
+   scheme hash is governed by the AK's parameter set).
+
+This is the value placed in `TPMS_QUOTE_INFO.pcrDigest`. The whole `TPMS_ATTEST` is then signed by the AK.
+
+### 15.6 PQC attestation specifics (V1.85)
+
+V1.85 does not add any PQC-specific fields to `TPMS_ATTEST`, `TPMS_QUOTE_INFO`, or `TPMS_CERTIFY_INFO`. The
+attestation structures are **signature-algorithm-agnostic**. PQC support enters through:
+
+- `TPMT_SIGNATURE.sigAlg` = `TPM_ALG_MLDSA` (0xA1) or `TPM_ALG_HASH_MLDSA` (0xA2) — see §5.3.
+- `TPMU_SIGNATURE.mldsa` = `TPM2B_SIGNATURE_MLDSA` carrier — see §5.3 Table 217.
+- The signing scheme hash on the AK template (`TPMS_MLDSA_PARMS`, §5.6) — drives the PCR digest hash used in
+  `TPMS_QUOTE_INFO.pcrDigest`.
+
+The dispatcher in `libtpms/src/tpm2/Attest_spt.c:172 SignAttestInfo()` already routes `TPM_ALG_MLDSA` through
+`CryptMlDsaSignMessage()` — no new attestation-side code is required to support an ML-DSA AK; the work is testing
+infrastructure (KATs, dual-verifier xcheck) and additional AK templates for ML-DSA-44 / ML-DSA-87.
+
+---
 
 ---
 
