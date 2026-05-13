@@ -3,7 +3,7 @@
 # The real build systems are autotools (libtpms, swtpm) and CMake (cross-val
 # harness, future WASM). This Makefile wraps common developer-facing targets.
 
-.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck attestation-xcheck ek-conformance-xcheck clean
+.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck attestation-xcheck ek-conformance-xcheck ek-cert-conformance-xcheck clean
 
 help:
 	@echo "pqctoday-tpm — developer targets"
@@ -58,6 +58,15 @@ attestation-xcheck: docker-xcheck
 ek-conformance-xcheck: docker-xcheck
 	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-xcheck \
 	    bash tests/compliance/run_ek_conformance_xcheck.sh
+
+# X.509 EK cert conformance: for each V2.7 §5.3.1 NV cert index, read the
+# cert with TPM2_NV_Read, parse with OpenSSL d2i_X509, byte-match the SPKI
+# AlgorithmIdentifier OID against V2.7 §6.2.x NIST CSOR references.
+# RED today (Phase C step 1 — slots not yet populated); turns green after
+# Phase C steps 2-4 (cert generation + NV write path).
+ek-cert-conformance-xcheck: docker-xcheck
+	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-xcheck \
+	    bash tests/compliance/run_ek_cert_conformance_xcheck.sh
 
 crossval-build:
 	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-dev \
