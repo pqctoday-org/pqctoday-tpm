@@ -3,7 +3,7 @@
 # The real build systems are autotools (libtpms, swtpm) and CMake (cross-val
 # harness, future WASM). This Makefile wraps common developer-facing targets.
 
-.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck attestation-xcheck clean
+.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck attestation-xcheck ek-conformance-xcheck clean
 
 help:
 	@echo "pqctoday-tpm — developer targets"
@@ -15,6 +15,7 @@ help:
 	@echo "  make crossval-build Build the harness without running it"
 	@echo "  make wolftpm-xcheck Runtime cross-check: wolfTPM PR #445 ↔ pqctoday-tpm"
 	@echo "  make attestation-xcheck  Runtime TPM2_Quote/Certify with ML-DSA AK (dual-verified)"
+	@echo "  make ek-conformance-xcheck  V2.7 RC1 PQC EK template byte-exact conformance"
 	@echo "  make clean          Clean build artifacts under tests/crossval/build"
 	@echo
 
@@ -48,6 +49,15 @@ wolftpm-xcheck: docker-xcheck
 attestation-xcheck: docker-xcheck
 	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-xcheck \
 	    bash tests/compliance/run_attestation_xcheck.sh
+
+# Structural conformance: byte-exact TPMT_PUBLIC vs V2.7 RC1 Tables 13/14
+# (Issue #2 — TCG IWG PQC EK Credential Profile). wolfTPM client reads each
+# PQC EK back via TPM2_ReadPublic and diffs the marshalled bytes against the
+# hand-encoded reference vectors in tests/compliance/vectors/v2p7-ek-templates/.
+# Goes RED today (Phase B step 3 in progress); turns green after Phase B step 4.
+ek-conformance-xcheck: docker-xcheck
+	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-xcheck \
+	    bash tests/compliance/run_ek_conformance_xcheck.sh
 
 crossval-build:
 	docker run --rm -v "$$PWD:/workspace" -w /workspace pqctoday-tpm-dev \
