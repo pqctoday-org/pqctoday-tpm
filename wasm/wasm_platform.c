@@ -876,13 +876,16 @@ WASM_DEF_EK_MLDSA(87, WASM_TPM2_ALG_SHA512, tcg_policyB_sha512,
                   TCG_POLICYB_SHA512_SIZE, 2592, WASM_TPM2_MLDSA_87)
 
 /* ── ML-DSA AKs (Owner hierarchy, mirror swtpm.c:1427-1520) ──────────────── */
-/* keyflags 0x000500f2: fixedTPM, sensitiveDataOrigin, userWithAuth,
- * adminWithPolicy, noDA, restricted, sign. allowExternalMu = YES.
- * Empty authPolicy → off = 30 + 0 + 3 = 33. */
-/* Keyflags: sign | restricted | fixedTPM | fixedParent | sensitiveDataOrigin |
- * userWithAuth | noDA = 0x00050072. Matches the proven-working AK template
- * in tests/compliance/clients/pqc_attestation_xcheck.c create_restricted_ak()
- * (lines 197-202).
+/* Keyflags 0x00050472:
+ *    bit  1  fixedTPM             (0x00000002)
+ *    bit  4  fixedParent          (0x00000010)
+ *    bit  5  sensitiveDataOrigin  (0x00000020)
+ *    bit  6  userWithAuth         (0x00000040)
+ *    bit 10  noDA                 (0x00000400)
+ *    bit 16  restricted           (0x00010000)
+ *    bit 18  sign                 (0x00040000)
+ * Matches pqc_attestation_xcheck.c create_restricted_ak() exactly (proven
+ * by `make attestation-xcheck` 12/12 PASS in native).
  *
  * Intentionally DIFFERENT from swtpm/src/swtpm_setup/swtpm.c which uses
  * 0x000500f2 (adminWithPolicy SET) with EMPTY authPolicy. That combination
@@ -910,7 +913,7 @@ static int wasm_create_ak_mldsa##N(uint32_t *curr, unsigned char *pub,    \
                                    size_t pub_max, size_t *pub_len) {     \
     const unsigned char parms[] = { WASM_AS2BE(PARMSET), 0x00 };          \
     return wasm_tpm2_createprimary_pqc(WASM_TPM2_RH_OWNER,                \
-        WASM_TPM2_ALG_MLDSA, WASM_TPM2_ALG_SHA256, 0x00050072u,           \
+        WASM_TPM2_ALG_MLDSA, WASM_TPM2_ALG_SHA256, 0x00050472u,           \
         WASM_EMPTY_BUF, 0, parms, sizeof(parms), (PKSIZE),                \
         30 + sizeof(parms), curr, pub, pub_max, pub_len);                 \
 }

@@ -940,6 +940,26 @@ The dispatcher in `libtpms/src/tpm2/Attest_spt.c:172 SignAttestInfo()` already r
 `CryptMlDsaSignMessage()` — no new attestation-side code is required to support an ML-DSA AK; the work is testing
 infrastructure (KATs, dual-verifier xcheck) and additional AK templates for ML-DSA-44 / ML-DSA-87.
 
+#### libtpms internal dispatch — Sign vs SignMessage (relevant to the WASM port)
+
+libtpms has TWO ML-DSA sign entry points in
+`libtpms/src/tpm2/crypto/openssl/CryptMlDsa.c`:
+
+| Function | Called by | Input |
+|---|---|---|
+| `CryptMlDsaSign` | `Attest_spt.c CryptSign` path → `TPM2_SignDigest` | Pre-hashed `TPM2B_DIGEST` |
+| `CryptMlDsaSignMessage` | `SignAttestInfo` (this section) → `TPM2_Quote`, `TPM2_Certify` | Full `TPMS_ATTEST` byte stream; ML-DSA hashes internally per FIPS 204 §5.2 |
+
+In the WASM build (`__EMSCRIPTEN__`), **both** functions must dispatch
+through `pqc_bridge_mldsa_sign` so the real Rust `ml-dsa` crate in
+softhsmv3-wasm produces the signature. Asymmetric coverage between the
+two (bridge in `CryptMlDsaSign` only) produces SignDigest success +
+Quote/Certify `TPM_RC_FAILURE (0x101)` — the bug fixed in pqctoday-tpm
+v0.7.x commit `9249dbf0`. The fallback path (bridge unavailable) writes
+0xEE-filled placeholder bytes of `CryptMlDsaSigSize(paramSet)` and returns
+`TPM_RC_SUCCESS` — structurally valid, semantically rejected by any real
+ML-DSA verifier.
+
 ---
 
 ---
@@ -1110,5 +1130,268 @@ available PQC EKs without scanning all NV indexes.
 | Mandatory parameter sets | All three for ML-KEM (512/768/1024); all three for ML-DSA (44/65/87). |
 | Local pqctoday-tpm gap | ✅ Issue [`#2`](https://github.com/pqctoday-org/pqctoday-tpm/issues/2) NO LONGER BLOCKED — proceed with implementation against V2.7 RC1, accept that small follow-ups may be needed at final. |
 | Workshop AK template alignment | Our `swtpm_setup` AKs (commits `a4e51998`, prior) use `nameAlg = SHA-256` across all three ML-DSA variants — V2.7 mandates SHA-256/384/512 by variant. Bring nameAlg into line in the EK template work. |
+
+---
+
+## 18. Wire formats used by the WASM provisioning port (v0.7.x)
+
+The Emscripten WASM build reimplements the `swtpm_setup` provisioning
+flow inside `wasm/wasm_platform.c` because the WASM target doesn't link
+GLib. Every command marshalled there mirrors the authoritative TCG V1.85
+Part 3 wire format. This section pins each one so the WASM port can be
+re-derived from the spec without round-tripping through the native swtpm
+code base.
+
+The same wire formats appear on the JS side in `pqctoday-hub/src/wasm/tpmBridge.ts`
+(`readPublic`, `nvReadPublic`, `nvReadAll`, `nvDefineSpace`, `nvWrite`)
+— they build raw command bytes for `tpm_wasm_process`.
+
+### 18.1 TPM2_CreatePrimary (Part 3 §24.1, Tables 124-125)
+
+Used by both the 6 V2.7 EK creators (§17.2/§17.3) and the 3 ML-DSA AK
+creators in `wasm_platform.c`.
+
+```
+Tag        TPM_ST_SESSIONS                   (0x8002)
+Size       uint32 (filled in last)
+Command    TPM_CC_CreatePrimary              (0x00000131)
+Handle area
+  primaryHandle  uint32                      // TPM_RH_ENDORSEMENT (0x4000000b) for EKs
+                                              // TPM_RH_OWNER       (0x40000001) for AKs
+Authorization area
+  authSize       uint32                      // = 9 (one empty-password session)
+  TPMS_AUTH_COMMAND
+    sessionHandle  uint32                    // TPM_RS_PW (0x40000009)
+    nonceSize      uint16                    // 0
+    sessionAttr    uint8                     // 0
+    hmacSize       uint16                    // 0
+Parameters
+  inSensitive    TPM2B_SENSITIVE_CREATE
+    size           uint16                    // = 4 (two empty inner TPM2B fields)
+    sensitive      TPMS_SENSITIVE_CREATE
+      userAuth       TPM2B_AUTH { size=0 }   // uint16
+      data           TPM2B_SENSITIVE_DATA { size=0 }
+  inPublic       TPM2B_PUBLIC
+    size           uint16                    // = sizeof(TPMT_PUBLIC bytes)
+    publicArea     TPMT_PUBLIC               // type, nameAlg, attrs, authPolicy{size,bytes},
+                                              // parms{alg-specific}, unique{size=0}
+  outsideInfo    TPM2B_DATA { size=0 }       // uint16
+  creationPCR    TPML_PCR_SELECTION { count=0 }  // uint32
+```
+
+Response layout used by the WASM port (`wasm_tpm2_createprimary_pqc`):
+- Header (10 B): tag(2) + size(4) + responseCode(4)
+- `objectHandle` (4 B at offset 10) — the transient handle libtpms returns
+- After `objectHandle`: TPM2B_PUBLIC { size(2) + TPMT_PUBLIC bytes } — the
+  port walks to offset `off = 30 + authPolicySize + parmsLen` to find
+  `unique.size` (FIPS pubkey size) and the pubkey bytes that follow.
+
+### 18.2 TPM2_EvictControl (Part 3 §28.5, Tables 141-142)
+
+Used to make a transient EK/AK persistent at its assigned handle
+(`0x810100A0..A3` for ML-DSA AKs / pre-V2.7 ML-KEM-768 EK,
+`0x810100B0..B6` for the 5 new V2.7 EKs).
+
+```
+Tag        TPM_ST_SESSIONS                   (0x8002)
+Size       uint32 (sizeof packed struct = 35)
+Command    TPM_CC_EvictControl               (0x00000120)
+Handle area
+  auth           uint32                      // TPM_RH_OWNER (0x40000001) for Owner-range
+                                              // persistent handles 0x81000000-0x817FFFFF
+  objectHandle   uint32                      // transient handle from CreatePrimary
+Authorization area
+  authSize       uint32                      // = 9
+  TPMS_AUTH_COMMAND                          // empty-password session, same as §18.1
+Parameters
+  persistentHandle  uint32                   // target persistent handle
+```
+
+The C side returns `TPM_RC_SUCCESS (0)` if persistence succeeds. If the
+slot is already persistent (idempotent re-run) some implementations
+return `TPM_RC_NV_DEFINED (0x14C)`; the port logs as best-effort and
+continues.
+
+### 18.3 TPM2_FlushContext (Part 3 §28.4, Tables 139-140)
+
+Releases the transient handle after EvictControl. NO_SESSIONS tag because
+FlushContext takes no authorization.
+
+```
+Tag       TPM_ST_NO_SESSIONS                 (0x8001)
+Size      uint32 (=14)
+Command   TPM_CC_FlushContext                (0x00000165)
+Parameters
+  flushHandle  uint32                        // the transient handle to release
+```
+
+### 18.4 TPM2_NV_DefineSpace (Part 3 §31.4, Tables 162-163)
+
+Defines a §5.3.1 EK cert NV slot. Used in WASM only as a fallback path
+(`wasm_tpm2_nvdefinespace`); the hub-side `tpmBridge.ts nvDefineSpace` is
+the production path that actually populates cert NV slots in browser.
+
+```
+Tag       TPM_ST_SESSIONS                    (0x8002)
+Size      uint32
+Command   TPM_CC_NV_DefineSpace              (0x0000012A)
+Handle area
+  authHandle  uint32                         // TPM_RH_PLATFORM (0x4000000C)
+Authorization area
+  authSize    uint32 (=9)
+  TPMS_AUTH_COMMAND                          // empty-password session (Platform auth value
+                                              // is empty by default after manufacture)
+Parameters
+  auth        TPM2B_AUTH { size=0 }          // uint16 (no per-slot password)
+  publicInfo  TPM2B_NV_PUBLIC
+    size         uint16                      // = 14 (size of TPMS_NV_PUBLIC body below)
+    nvPublic     TPMS_NV_PUBLIC
+      nvIndex       uint32                   // 0x01c00060..0x01c00074 per §17.6
+      nameAlg       uint16                   // TPM_ALG_SHA256 (0x000B)
+      attributes    uint32                   // 0x42072001 (see §18.4.1)
+      authPolicy    TPM2B_DIGEST { size=0 }  // uint16
+      dataSize      uint16                   // cert DER byte count
+```
+
+#### 18.4.1 TPMA_NV bit set used for V2.7 §5.3.1 cert slots
+
+```
+TPMA_NV_PPWRITE        0x00000001   // Platform-authorised writes
+TPMA_NV_WRITEDEFINE    0x00002000   // NV_WriteLock makes the slot read-only
+TPMA_NV_AUTHREAD       0x00040000   // empty-password reads (how AttestationPanel reads)
+TPMA_NV_PPREAD         0x00010000   // Platform-authorised reads
+TPMA_NV_OWNERREAD      0x00020000   // Owner-authorised reads
+TPMA_NV_NO_DA          0x02000000   // failed auths don't trigger DA lockout
+TPMA_NV_PLATFORMCREATE 0x40000000   // created by Platform; cleared on TPM2_Clear
+                                    // (matches RSA/ECC EK cert NV slots — Part 3 §29 + §31)
+```
+
+Combined: `0x42072001` — same set the native `swtpm_setup` uses for
+`TPM2_NV_INDEX_RSA{2048,3072}_EKCERT` and the V2.7 PQC equivalents.
+
+Per V2.7 §5.3.1, `AUTHREAD | PPREAD | OWNERREAD` together mean any of the
+three role authorizations succeed for reads — so a verifier can fetch the
+EK cert with an empty-password session like the EK Cert Reader tab does.
+
+### 18.5 TPM2_NV_Write (Part 3 §31.6, Tables 166-167)
+
+Writes cert DER to the slot. Must be chunked at `MAX_NV_BUFFER_SIZE`
+(default 1024 B in libtpms; per-TPM via `TPM_PT_NV_BUFFER_MAX`).
+
+```
+Tag       TPM_ST_SESSIONS                    (0x8002)
+Size      uint32
+Command   TPM_CC_NV_Write                    (0x00000137)
+Handle area
+  authHandle  uint32                         // TPM_RH_PLATFORM (matches DefineSpace auth)
+  nvIndex     uint32                         // 0x01c00060..0x01c00074
+Authorization area
+  authSize    uint32 (=9)
+  TPMS_AUTH_COMMAND                          // empty-password session
+Parameters
+  data        TPM2B_MAX_NV_BUFFER
+    size         uint16                      // <= MAX_NV_BUFFER_SIZE (1024)
+    buffer       BYTE[size]
+  offset      uint16                         // byte offset into the slot
+```
+
+Per-chunk loop: send `ceil(certLen / 1024)` `NV_Write` commands with
+increasing `offset` values; the final write's `size` may be less than
+`MAX_NV_BUFFER_SIZE`. Both the WASM C port and the JS-side `tpmBridge.ts
+nvWrite` implement this same chunking.
+
+### 18.6 TPM2_NV_ReadPublic (Part 3 §31.7, Tables 168-169)
+
+Used by `tpmBridge.ts nvReadPublic` + `parseNvDataSize` to learn each
+slot's `dataSize` before issuing `NV_Read`.
+
+```
+Tag       TPM_ST_NO_SESSIONS                 (0x8001)
+Size      uint32 (=14)
+Command   TPM_CC_NV_ReadPublic               (0x00000169)
+Parameters
+  nvIndex   uint32                           // slot to probe
+```
+
+Response body: `TPM2B_NV_PUBLIC` then `TPM2B_NAME`. Position of
+`dataSize`: after `nvIndex(4) + nameAlg(2) + attributes(4) +
+authPolicy.size(2) + authPolicy bytes(authPolicySize)` = 12 + authPolicySize.
+
+### 18.7 TPM2_NV_Read (Part 3 §31.13, Tables 178-179)
+
+Reads back the cert DER from a §5.3.1 slot. AUTHREAD permits the
+empty-password session pattern.
+
+```
+Tag       TPM_ST_SESSIONS                    (0x8002)
+Size      uint32
+Command   TPM_CC_NV_Read                     (0x0000014E)
+Handle area
+  authHandle  uint32                         // = nvIndex itself (slot has AUTHREAD set)
+  nvIndex     uint32                         // 0x01c00060..0x01c00074
+Authorization area
+  authSize    uint32 (=9)
+  TPMS_AUTH_COMMAND                          // empty-password session
+Parameters
+  size        uint16                         // bytes to read this call (<= MAX_NV_BUFFER_SIZE)
+  offset      uint16                         // starting byte offset into the slot
+```
+
+Response body (after the 10-byte header + 4-byte parameterSize because
+tag = TPM_ST_SESSIONS): `TPM2B_MAX_NV_BUFFER { size(2), bytes(size) }`.
+
+The EK Cert Reader tab (and the native `ek-cert-conformance-xcheck` test
+in C) walks this chunked: keep calling with incrementing offset until
+either `size` bytes returned == 0 or accumulated bytes match `dataSize`
+from `NV_ReadPublic`.
+
+### 18.8 TPM2_ReadPublic (Part 3 §12.4, Tables 84-85)
+
+Reads back a persistent EK's `TPMT_PUBLIC` so the cert provisioner can
+extract the FIPS-sized pubkey bytes for SPKI wrapping.
+
+```
+Tag       TPM_ST_NO_SESSIONS                 (0x8001)
+Size      uint32 (=14)
+Command   TPM_CC_ReadPublic                  (0x00000173)
+Parameters
+  objectHandle  uint32                       // 0x810100A0 .. 0x810100B6 for V2.7 EKs
+```
+
+Response body: `outPublic TPM2B_PUBLIC` then `name TPM2B_NAME` then
+`qualifiedName TPM2B_NAME`. The cert provisioner walks `outPublic` past
+the V2.7 template prefix (variable `authPolicySize + parmsLen` per
+algorithm) to the `unique.size + unique.bytes` payload.
+
+### 18.9 V2.7 ML-DSA AK keyflag set used by the WASM port
+
+Mirrors `tests/compliance/clients/pqc_attestation_xcheck.c create_restricted_ak()` — the AK template proven by `make attestation-xcheck` (12/12 PASS native).
+
+```
+0x00050472 = TPMA_OBJECT bits {
+   fixedTPM             (bit  1, 0x00000002)
+   fixedParent          (bit  4, 0x00000010)
+   sensitiveDataOrigin  (bit  5, 0x00000020)
+   userWithAuth         (bit  6, 0x00000040)
+   noDA                 (bit 10, 0x00000400)
+   restricted           (bit 16, 0x00010000)
+   sign                 (bit 18, 0x00040000)
+}
+```
+
+NOT set: `adminWithPolicy` (bit 7, 0x80). The native `swtpm_setup`
+template uses `0x000500F2` which sets `adminWithPolicy` SET but has
+EMPTY `authPolicy` — that combination violates V1.85 Part 2 §10.4.5
+("if adminWithPolicy is SET, authPolicy shall NOT be EMPTY"). The WASM
+port intentionally drops `adminWithPolicy` to keep the AK template
+spec-compliant. The native compliance suites accidentally avoid the
+violation because they create fresh per-test AKs rather than using the
+swtpm_setup persistent ones.
+
+Also NOT set in the WASM template (parms `allowExternalMu = 0x00`):
+restricted-AK Quote/Certify requires `allowExternalMu = NO` per Part 1
+§22.1.2 + Part 2 §10.5. The native swtpm_setup uses `YES` to permit
+SignDigest paths — works for SignDigest but trips on Quote
+(reproducible in `make wasm-test` after the v0.7.x port).
 
 ---
