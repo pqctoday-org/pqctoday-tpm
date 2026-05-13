@@ -91,7 +91,12 @@
 					 * pk = 2592 B, ML-KEM-1024 pk = 1568 B
 					 * plus classical union members). */
 #define MAX_DIGEST_BUFFER          1024
-#define MAX_NV_INDEX_SIZE          2048
+/* pqctoday-tpm: bumped from 2048 → 8192 to fit V2.7 §5.3.1 PQC EK
+ * certificates. ML-DSA-65/87 SPKI + ML-DSA-65 issuer signature push cert
+ * DER to 4.3 – 6.1 KB. Underlying NV_MEMORY_SIZE (172 KB) has ample
+ * headroom; the existing chunked NV_Read/NV_Write path already iterates
+ * via MAX_NV_BUFFER_SIZE-sized fragments. */
+#define MAX_NV_INDEX_SIZE          8192
 #define MAX_NV_BUFFER_SIZE         1024
 #define MAX_CAP_BUFFER             1024
 /* libtmps: 65 OBJECTs in USER NVRAM expanded by 704 bytes due to size

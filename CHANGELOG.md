@@ -6,6 +6,85 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-05-13
+
+### V2.7 RC1 PQC EK Certificates — generation + NV provisioning
+
+Closes [`#2`](https://github.com/pqctoday-org/pqctoday-tpm/issues/2) (G7-A)
+Phase C. v0.5.0 made the six V2.7 EK *templates* byte-exact. v0.6.0 closes
+the loop: at `swtpm_setup` time we now build a real X.509 EK certificate
+for each of the six V2.7 EKs (SPKI carries the TPM-resident PQC pubkey
+under the NIST CSOR OID per V2.7 §6.2.x) and write the cert DER to the
+spec-mandated §5.3.1 NV index.
+
+#### What works end-to-end
+
+`make ek-cert-conformance-xcheck` — **6 PASS / 0 FAIL**:
+
+```text
+ML-KEM-512  EK cert @ 0x01c00060 — cert 4335 B, SPKI OID byte-matches V2.7 §6.2.3
+ML-KEM-768  EK cert @ 0x01c00062 — cert 4719 B, SPKI OID byte-matches V2.7 §6.2.3
+ML-KEM-1024 EK cert @ 0x01c00064 — cert 5104 B, SPKI OID byte-matches V2.7 §6.2.3
+ML-DSA-44   EK cert @ 0x01c00070 — cert 4846 B, SPKI OID byte-matches V2.7 §6.2.4
+ML-DSA-65   EK cert @ 0x01c00072 — cert 5486 B, SPKI OID byte-matches V2.7 §6.2.4
+ML-DSA-87   EK cert @ 0x01c00074 — cert 6126 B, SPKI OID byte-matches V2.7 §6.2.4
+```
+
+Each PASS chains five independent assertions per slot:
+
+1. `TPM2_NV_ReadPublic` against the V2.7 §5.3.1 spec NV index succeeds —
+   the cert slot exists (was zero handles before v0.6.0, RED state).
+2. `TPM2_NV_Read` returns the full cert DER (chunked through
+   `MAX_NV_BUFFER_SIZE`).
+3. OpenSSL `d2i_X509` parses the DER — well-formed X.509.
+4. SPKI AlgorithmIdentifier OID body **byte-matches** the NIST CSOR
+   reference (`tests/compliance/vectors/v2p7-ek-cert-oids/`) —
+   `id-alg-ml-kem-{512,768,1024}` / `id-ml-dsa-{44,65,87}` per V2.7 §6.2.x.
+5. Cert `notAfter` is in the future, `notBefore` past, subject CN non-empty.
+
+#### Code path
+
+- `swtpm_pqc_build_cert_der` (`swtpm/src/swtpm_setup/swtpm.c`) — split out
+  from the v1.85 `swtpm_pqc_write_cert`; returns DER bytes in memory so
+  the same cert can be written both to disk (legacy `mlkem_ek.cert` path)
+  and to NV (new V2.7 path) without regenerating.
+- `swtpm_tpm2_pqc_provision_v2p7_ekcert_nvram` — table-driven loop over
+  the six V2.7 EKs; uses the existing `swtpm_tpm2_write_nvram` helper
+  (TPM2_NV_DefineSpace + chunked TPM2_NV_Write) so the NV attributes
+  (`PLATFORMCREATE | AUTHREAD | OWNERREAD | PPREAD | PPWRITE | NO_DA |
+  WRITEDEFINE`) mirror exactly the existing RSA/ECC EK cert slots.
+- `swtpm_tpm2_provision_v2p7_ek` now threads each V2.7 EK pubkey hex
+  back to the caller (was previously discarded by passing `NULL`).
+
+#### libtpms profile bump
+
+`MAX_NV_INDEX_SIZE` raised from 2048 → 8192
+(`libtpms/src/tpm2/TpmProfile_Misc.h`). PQC certs run 4.3 – 6.1 KB
+because ML-DSA-65 issuer signatures alone are 3309 B (FIPS 204 Table 2).
+Underlying `NV_MEMORY_SIZE` (172 KB) has ample headroom. Migrated the
+matching `NVMarshal.c` `COMPILE_CONSTANT` from `EQ` → `LE` so older
+state files (which recorded 2048) still load on the new build.
+
+#### Cross-check matrix (post-v0.6.0)
+
+| Suite | Result |
+|---|---|
+| `make compliance` (v185) | **109 / 0 / 0** (PASS / FAIL / SKIP) |
+| `make wolftpm-xcheck` | **29 / 0** |
+| `make attestation-xcheck` | **12 / 0** |
+| `make ek-conformance-xcheck` | **6 / 0** |
+| `make ek-cert-conformance-xcheck` | **6 / 0** ← previously 0/6 RED |
+
+### Notable
+
+This makes pqctoday-tpm the **first open-source TPM 2.0 implementation
+publishing full V2.7 RC1 PQC EK certificates at NV-readable slots**. A
+remote attestation flow can now `TPM2_NV_Read 0x01c00072`, parse with
+any standard X.509 stack, and obtain the ML-DSA-65 EK pubkey — no
+vendor-specific provisioning required.
+
+---
+
 ## [0.5.0] — 2026-05-13
 
 ### V2.7 RC1 PQC EK Credential Profile — byte-exact conformance

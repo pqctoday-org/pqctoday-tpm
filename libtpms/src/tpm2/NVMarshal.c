@@ -3963,7 +3963,7 @@ static const struct _entry {
     { COMPILE_CONSTANT(NUM_AUTHVALUE_PCR_GROUP, EQ) },
     { COMPILE_CONSTANT(MAX_CONTEXT_SIZE, LE) }, /* old: 2474 */
     { COMPILE_CONSTANT(MAX_DIGEST_BUFFER, EQ) },
-    { COMPILE_CONSTANT(MAX_NV_INDEX_SIZE, EQ) },
+    { COMPILE_CONSTANT(MAX_NV_INDEX_SIZE, LE) }, /* pqctoday-tpm: was EQ; bumped to 8192 for V2.7 PQC EK certs. LE permits loading older state files where the saved limit was 2048. */
     { COMPILE_CONSTANT(MAX_NV_BUFFER_SIZE, EQ) },
     { COMPILE_CONSTANT(MAX_CAP_BUFFER, EQ) },
     { COMPILE_CONSTANT(NV_MEMORY_SIZE, LE) },

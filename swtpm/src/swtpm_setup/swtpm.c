@@ -1519,6 +1519,18 @@ static int swtpm_tpm2_createprimary_ak_mldsa87(struct swtpm *self, uint32_t *cur
                                         ektemplate, ektemplate_len, ekparam, key_description);
 }
 
+/* Forward declaration: V2.7 §6.2.x X.509 EK cert generator + §5.3.1 NV
+ * writer. Body lives in the OpenSSL 3.5+ block further down. Called from
+ * swtpm_tpm2_create_pqc_eks after the 6 V2.7 EKs are provisioned. */
+static int swtpm_tpm2_pqc_provision_v2p7_ekcert_nvram(struct swtpm *self,
+                                                       gboolean lock_nvram,
+                                                       const gchar *mlkem512_pub,
+                                                       const gchar *mlkem768_pub,
+                                                       const gchar *mlkem1024_pub,
+                                                       const gchar *mldsa44_pub,
+                                                       const gchar *mldsa65_pub,
+                                                       const gchar *mldsa87_pub);
+
 /* Helper: create + persist a V2.7 EK, log result, flush. Used for the 5 NEW
  * EKs added in Phase B step 4 (the existing ML-KEM-768 + AKs keep their
  * verbose blocks to preserve mldsa_akparam capture for the X.509 cert path). */
@@ -1527,13 +1539,14 @@ typedef int (*pqc_ek_creator_fn)(struct swtpm *, uint32_t *, unsigned char *,
 static int swtpm_tpm2_provision_v2p7_ek(struct swtpm *self,
                                         pqc_ek_creator_fn creator,
                                         uint32_t persistent_handle,
-                                        const char *label)
+                                        const char *label,
+                                        gchar **pubparam)
 {
     uint32_t curr_handle;
     unsigned char ektemplate[128];  /* V2.7 ML-KEM-1024 EK = 84 B, ML-DSA-87 EK = 79 B */
     size_t ektemplate_len = sizeof(ektemplate);
     const gchar *desc = NULL;
-    int ret = creator(self, &curr_handle, ektemplate, &ektemplate_len, NULL, &desc);
+    int ret = creator(self, &curr_handle, ektemplate, &ektemplate_len, pubparam, &desc);
     if (ret != 0) {
         logerr(self->logfile, "V2.7 %s EK CreatePrimary failed\n", label);
         return 1;
@@ -1646,25 +1659,50 @@ static int swtpm_tpm2_create_pqc_eks(struct swtpm *self, gboolean lock_nvram,
 
     /* ── V2.7 RC1 EKs (Endorsement hierarchy, Tables 13/14) ──────────────
      * The ML-KEM-768 EK provisioned above (handle 0x810100A0) is already
-     * V2.7-compliant. Provision the remaining 5 mandatory EKs here.
-     * Phase B step 4 of issue #2 (G7-A). */
+     * V2.7-compliant; its pubkey is held in *mlkem_ekparam. Provision the
+     * remaining 5 mandatory EKs here, capturing each pubkey for the
+     * Phase C X.509 EK cert + NV-write path. Phase C step 2. */
+    g_autofree gchar *v2p7_mlkem512_pub = NULL;
+    g_autofree gchar *v2p7_mlkem1024_pub = NULL;
+    g_autofree gchar *v2p7_mldsa44_pub = NULL;
+    g_autofree gchar *v2p7_mldsa65_pub = NULL;
+    g_autofree gchar *v2p7_mldsa87_pub = NULL;
+
     if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mlkem512,
-                                     TPM2_V2P7_EK_MLKEM512_HANDLE, "ML-KEM-512") != 0)
+                                     TPM2_V2P7_EK_MLKEM512_HANDLE, "ML-KEM-512",
+                                     &v2p7_mlkem512_pub) != 0)
         return 1;
     if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mlkem1024,
-                                     TPM2_V2P7_EK_MLKEM1024_HANDLE, "ML-KEM-1024") != 0)
+                                     TPM2_V2P7_EK_MLKEM1024_HANDLE, "ML-KEM-1024",
+                                     &v2p7_mlkem1024_pub) != 0)
         return 1;
     if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mldsa44,
-                                     TPM2_V2P7_EK_MLDSA44_HANDLE, "ML-DSA-44") != 0)
+                                     TPM2_V2P7_EK_MLDSA44_HANDLE, "ML-DSA-44",
+                                     &v2p7_mldsa44_pub) != 0)
         return 1;
     if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mldsa65,
-                                     TPM2_V2P7_EK_MLDSA65_HANDLE, "ML-DSA-65") != 0)
+                                     TPM2_V2P7_EK_MLDSA65_HANDLE, "ML-DSA-65",
+                                     &v2p7_mldsa65_pub) != 0)
         return 1;
     if (swtpm_tpm2_provision_v2p7_ek(self, swtpm_tpm2_createprimary_ek_mldsa87,
-                                     TPM2_V2P7_EK_MLDSA87_HANDLE, "ML-DSA-87") != 0)
+                                     TPM2_V2P7_EK_MLDSA87_HANDLE, "ML-DSA-87",
+                                     &v2p7_mldsa87_pub) != 0)
         return 1;
 
-    (void)lock_nvram;  /* NV template storage pending TCG IWG PQC provisioning spec */
+    /* Phase C steps 3+4: generate X.509 EK cert per V2.7 §6.2.x for each
+     * of the 6 V2.7 EKs, then write each cert to its §5.3.1 NV index. The
+     * ML-KEM-768 EK pubkey is the one already captured at the top of this
+     * function. Gated on OpenSSL 3.5+ for ML-KEM/ML-DSA SPKI support. */
+    if (swtpm_tpm2_pqc_provision_v2p7_ekcert_nvram(
+            self, lock_nvram,
+            v2p7_mlkem512_pub,
+            mlkem_ekparam ? *mlkem_ekparam : NULL,   /* ML-KEM-768 EK pub captured at top */
+            v2p7_mlkem1024_pub,
+            v2p7_mldsa44_pub, v2p7_mldsa65_pub, v2p7_mldsa87_pub) != 0) {
+        logit(self->logfile,
+              "Note: V2.7 EK cert NV provisioning failed/skipped (Phase C is best-effort).\n");
+    }
+
     return 0;
 }
 
@@ -1755,21 +1793,29 @@ static EVP_PKEY *swtpm_pqc_pkey_from_pub(const char *keytype,
     return pkey;
 }
 
-/* Write a self-signed PQC X.509 cert (DER) to <certsdir>/<filename>. */
-static int swtpm_pqc_write_cert(const gchar *certsdir, const gchar *filename,
-                                const gchar *subject_keytype,
-                                const gchar *subject_cn,
-                                const unsigned char *subject_pub, size_t subject_pub_len,
-                                const gchar *logfile)
+/* Build a self-signed PQC X.509 cert (DER) in memory. Caller frees *out_der
+ * with OPENSSL_free. Returns 0 on success.
+ *
+ * issuer = ephemeral ML-DSA-65 CA (regenerated per call → certs are NOT
+ * reproducible across runs by design; this is dev provisioning, not a trust
+ * anchor). Subject SPKI carries the raw TPM-resident PQC pubkey under the
+ * NIST CSOR OID for `subject_keytype` (OpenSSL 3.5+ wires id-alg-ml-kem-*
+ * and id-ml-dsa-* into the SPKI AlgorithmIdentifier automatically). */
+static int swtpm_pqc_build_cert_der(const gchar *subject_keytype,
+                                    const gchar *subject_cn,
+                                    const unsigned char *subject_pub, size_t subject_pub_len,
+                                    unsigned char **out_der, int *out_der_len,
+                                    const gchar *logfile)
 {
     EVP_PKEY *issuer_key = NULL;
     EVP_PKEY *subject_key = NULL;
     X509 *cert = NULL;
     X509_NAME *issuer_name = NULL;
     EVP_MD_CTX *md_ctx = NULL;
-    BIO *bio = NULL;
-    g_autofree gchar *path = NULL;
     int ret = 1;
+
+    *out_der = NULL;
+    *out_der_len = 0;
 
     issuer_key = swtpm_pqc_gen_mldsa65(logfile);
     if (issuer_key == NULL)
@@ -1829,14 +1875,54 @@ static int swtpm_pqc_write_cert(const gchar *certsdir, const gchar *filename,
         goto out;
     }
 
+    /* Encode to DER in memory. i2d_X509 allocates via OPENSSL_malloc when
+     * *out is NULL. */
+    *out_der_len = i2d_X509(cert, out_der);
+    if (*out_der_len <= 0 || *out_der == NULL) {
+        logerr(logfile, "PQC EK cert: i2d_X509 in-memory encode failed\n");
+        *out_der = NULL;
+        *out_der_len = 0;
+        goto out;
+    }
+
+    ret = 0;
+
+out:
+    EVP_MD_CTX_free(md_ctx);
+    X509_NAME_free(issuer_name);
+    X509_free(cert);
+    EVP_PKEY_free(subject_key);
+    EVP_PKEY_free(issuer_key);
+    return ret;
+}
+
+/* Write a self-signed PQC X.509 cert (DER) to <certsdir>/<filename>. Thin
+ * wrapper over swtpm_pqc_build_cert_der + file I/O. */
+static int swtpm_pqc_write_cert(const gchar *certsdir, const gchar *filename,
+                                const gchar *subject_keytype,
+                                const gchar *subject_cn,
+                                const unsigned char *subject_pub, size_t subject_pub_len,
+                                const gchar *logfile)
+{
+    unsigned char *der = NULL;
+    int der_len = 0;
+    g_autofree gchar *path = NULL;
+    BIO *bio = NULL;
+    int ret = 1;
+
+    if (swtpm_pqc_build_cert_der(subject_keytype, subject_cn,
+                                 subject_pub, subject_pub_len,
+                                 &der, &der_len, logfile) != 0)
+        goto out;
+
     path = g_build_filename(certsdir, filename, NULL);
     bio = BIO_new_file(path, "wb");
     if (bio == NULL) {
         logerr(logfile, "PQC EK cert: cannot open %s for writing\n", path);
         goto out;
     }
-    if (i2d_X509_bio(bio, cert) != 1) {
-        logerr(logfile, "PQC EK cert: i2d_X509_bio(%s) failed\n", path);
+    if (BIO_write(bio, der, der_len) != der_len) {
+        logerr(logfile, "PQC EK cert: BIO_write(%s) failed\n", path);
         goto out;
     }
 
@@ -1846,11 +1932,7 @@ static int swtpm_pqc_write_cert(const gchar *certsdir, const gchar *filename,
 
 out:
     BIO_free(bio);
-    EVP_MD_CTX_free(md_ctx);
-    X509_NAME_free(issuer_name);
-    X509_free(cert);
-    EVP_PKEY_free(subject_key);
-    EVP_PKEY_free(issuer_key);
+    OPENSSL_free(der);
     return ret;
 }
 
@@ -1903,6 +1985,121 @@ static int swtpm_tpm2_pqc_write_ek_certs(struct swtpm *self,
 
     return ret;
 }
+
+/* ── V2.7 §5.3.1 NV cert provisioning ────────────────────────────────────────
+ *
+ * For each of the 6 V2.7 EKs (Storage ML-KEM-{512,768,1024} + Signing
+ * ML-DSA-{44,65,87}): build a self-signed X.509 cert (SPKI = TPM-resident
+ * EK pubkey, issuer = ephemeral ML-DSA-65 CA per `swtpm_pqc_build_cert_der`,
+ * SPKI AlgorithmIdentifier OID = NIST CSOR id-alg-ml-kem-{512,768,1024} /
+ * id-ml-dsa-{44,65,87} per V2.7 §6.2.3 / §6.2.4) and write the cert DER to
+ * the spec-mandated NV index from §5.3.1:
+ *
+ *     ML-KEM-512  EK cert → 0x01c00060   (TCG_NV_EKCERT_MLKEM_512)
+ *     ML-KEM-768  EK cert → 0x01c00062   (TCG_NV_EKCERT_MLKEM_768)
+ *     ML-KEM-1024 EK cert → 0x01c00064   (TCG_NV_EKCERT_MLKEM_1024)
+ *     ML-DSA-44   EK cert → 0x01c00070   (TCG_NV_EKCERT_MLDSA_44)
+ *     ML-DSA-65   EK cert → 0x01c00072   (TCG_NV_EKCERT_MLDSA_65)
+ *     ML-DSA-87   EK cert → 0x01c00074   (TCG_NV_EKCERT_MLDSA_87)
+ *
+ * NV attributes mirror the existing RSA/ECC EK cert slots
+ * (swtpm_tpm2_write_ek_cert_nvram): PLATFORMCREATE | AUTHREAD | OWNERREAD |
+ * PPREAD | PPWRITE | NO_DA | WRITEDEFINE. This makes the cert readable with
+ * an empty-password authorisation session (V2.7 §5.3.1 mandate), which is
+ * how the ek_cert_conformance_xcheck wolfTPM client reads them. Phase C
+ * steps 3+4 of issue #2 (G7-A).
+ *
+ * Failures per-slot are logged + skipped, not fatal — provisioning a TPM
+ * without all 6 V2.7 EK certs (e.g. an older libtpms that lacks one PQC
+ * parameter set) must still succeed so the existing RSA/ECC EK + V1.85 PQC
+ * paths remain green. */
+static int swtpm_tpm2_pqc_provision_v2p7_ekcert_nvram(struct swtpm *self,
+                                                       gboolean lock_nvram,
+                                                       const gchar *mlkem512_pub,
+                                                       const gchar *mlkem768_pub,
+                                                       const gchar *mlkem1024_pub,
+                                                       const gchar *mldsa44_pub,
+                                                       const gchar *mldsa65_pub,
+                                                       const gchar *mldsa87_pub)
+{
+    struct v2p7_ek_cert {
+        const char    *keytype;       /* OpenSSL EVP keytype name */
+        const char    *cn;            /* Subject CN */
+        size_t         exp_pub_len;   /* FIPS 203/204 pubkey size in bytes */
+        uint32_t       nvindex;       /* V2.7 §5.3.1 NV slot */
+        const gchar   *pub_hex;       /* hex-encoded TPM pubkey (may be NULL) */
+    } slots[] = {
+        { "ML-KEM-512",  "TPM EK (ML-KEM-512)",   800,  TCG_NV_EKCERT_MLKEM_512,  mlkem512_pub  },
+        { "ML-KEM-768",  "TPM EK (ML-KEM-768)",  1184,  TCG_NV_EKCERT_MLKEM_768,  mlkem768_pub  },
+        { "ML-KEM-1024", "TPM EK (ML-KEM-1024)", 1568,  TCG_NV_EKCERT_MLKEM_1024, mlkem1024_pub },
+        { "ML-DSA-44",   "TPM EK (ML-DSA-44)",   1312,  TCG_NV_EKCERT_MLDSA_44,   mldsa44_pub   },
+        { "ML-DSA-65",   "TPM EK (ML-DSA-65)",   1952,  TCG_NV_EKCERT_MLDSA_65,   mldsa65_pub   },
+        { "ML-DSA-87",   "TPM EK (ML-DSA-87)",   2592,  TCG_NV_EKCERT_MLDSA_87,   mldsa87_pub   },
+    };
+    const uint32_t nv_attrs = TPMA_NV_PLATFORMCREATE |
+                              TPMA_NV_AUTHREAD |
+                              TPMA_NV_OWNERREAD |
+                              TPMA_NV_PPREAD |
+                              TPMA_NV_PPWRITE |
+                              TPMA_NV_NO_DA |
+                              TPMA_NV_WRITEDEFINE;
+    int overall_ret = 0;
+
+    for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); i++) {
+        const struct v2p7_ek_cert *s = &slots[i];
+        g_autofree unsigned char *pub_bin = NULL;
+        size_t pub_bin_len = 0;
+        unsigned char *cert_der = NULL;
+        int cert_der_len = 0;
+
+        if (s->pub_hex == NULL) {
+            logit(self->logfile,
+                  "V2.7 EK cert: skipping %s @ 0x%08x — pubkey not captured "
+                  "(EK provisioning may have failed earlier)\n",
+                  s->keytype, s->nvindex);
+            continue;
+        }
+
+        pub_bin = swtpm_pqc_hex2bin(s->pub_hex, &pub_bin_len);
+        if (pub_bin == NULL || pub_bin_len != s->exp_pub_len) {
+            logerr(self->logfile,
+                   "V2.7 EK cert: invalid %s pubkey hex (got %zu B, expected %zu)\n",
+                   s->keytype, pub_bin_len, s->exp_pub_len);
+            overall_ret = 1;
+            continue;
+        }
+
+        if (swtpm_pqc_build_cert_der(s->keytype, s->cn,
+                                     pub_bin, pub_bin_len,
+                                     &cert_der, &cert_der_len, self->logfile) != 0) {
+            logerr(self->logfile,
+                   "V2.7 EK cert: build failed for %s @ 0x%08x\n",
+                   s->keytype, s->nvindex);
+            overall_ret = 1;
+            continue;
+        }
+
+        if (swtpm_tpm2_write_nvram(self, s->nvindex, nv_attrs,
+                                   cert_der, (size_t)cert_der_len,
+                                   lock_nvram,
+                                   "V2.7 PQC EK certificate") != 0) {
+            logerr(self->logfile,
+                   "V2.7 EK cert: NV write failed for %s @ 0x%08x (%d B)\n",
+                   s->keytype, s->nvindex, cert_der_len);
+            OPENSSL_free(cert_der);
+            overall_ret = 1;
+            continue;
+        }
+
+        logit(self->logfile,
+              "V2.7 EK cert: %s written to NV 0x%08x (%d B, NIST CSOR OID, "
+              "issuer ML-DSA-65 ephemeral)\n",
+              s->keytype, s->nvindex, cert_der_len);
+        OPENSSL_free(cert_der);
+    }
+
+    return overall_ret;
+}
 #else  /* OPENSSL_VERSION_NUMBER < 0x30500000L */
 static int swtpm_tpm2_pqc_write_ek_certs(struct swtpm *self,
                                           const gchar *certsdir, const gchar *vmid,
@@ -1912,6 +2109,22 @@ static int swtpm_tpm2_pqc_write_ek_certs(struct swtpm *self,
     (void)certsdir; (void)vmid; (void)mlkem_ekparam; (void)mldsa_akparam;
     logit(self->logfile,
           "PQC EK cert: skipped — OpenSSL 3.5+ required for ML-DSA/ML-KEM cert generation\n");
+    return 0;
+}
+static int swtpm_tpm2_pqc_provision_v2p7_ekcert_nvram(struct swtpm *self,
+                                                       gboolean lock_nvram,
+                                                       const gchar *mlkem512_pub,
+                                                       const gchar *mlkem768_pub,
+                                                       const gchar *mlkem1024_pub,
+                                                       const gchar *mldsa44_pub,
+                                                       const gchar *mldsa65_pub,
+                                                       const gchar *mldsa87_pub)
+{
+    (void)lock_nvram;
+    (void)mlkem512_pub; (void)mlkem768_pub; (void)mlkem1024_pub;
+    (void)mldsa44_pub;  (void)mldsa65_pub;  (void)mldsa87_pub;
+    logit(self->logfile,
+          "V2.7 EK cert NV provisioning: skipped — OpenSSL 3.5+ required for ML-DSA/ML-KEM cert generation\n");
     return 0;
 }
 #endif
