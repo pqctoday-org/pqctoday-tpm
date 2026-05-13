@@ -637,6 +637,23 @@ CryptMlDsaSignMessage(TPMT_SIGNATURE            *sigOut,
             goto cleanup;
     }
 
+#ifdef PQCTODAY_TPM_DETERMINISTIC_SIGN
+    /* Test-only: force FIPS 204 §3.4 deterministic mode (rho'' = 0) so that
+     * KAT vectors can be byte-exact across runs. Uses OpenSSL's first-class
+     * OSSL_SIGNATURE_PARAM_DETERMINISTIC on the same EVP_PKEY_CTX — same real
+     * ML-DSA primitive, only the randomness source changes. NEVER define this
+     * flag in production builds. */
+    {
+        OSSL_PARAM detParams[2];
+        int        detOn      = 1;
+        detParams[0] = OSSL_PARAM_construct_int(
+                           OSSL_SIGNATURE_PARAM_DETERMINISTIC, &detOn);
+        detParams[1] = OSSL_PARAM_construct_end();
+        if (EVP_PKEY_CTX_set_params(pctx, detParams) <= 0)
+            goto cleanup;
+    }
+#endif
+
     if (EVP_DigestSign(mdctx, NULL, &sigLen, msg, msgLen) <= 0)
         goto cleanup;
     if (sigLen != (size_t)expectedSigSize)
