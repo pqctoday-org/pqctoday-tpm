@@ -6,6 +6,66 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-05-13
+
+### WASM provisioning port — V2.7 EK + cert NV slots reachable in the browser
+
+Until v0.7.0, the WASM build (`wasm/dist/pqctpm.{js,wasm}`) ran
+`TPMLIB_MainInit` + `TPM2_Startup` but did not provision the V2.7 EK
+templates or populate the §5.3.1 NV cert slots — that work lives in
+`swtpm/src/swtpm_setup/swtpm.c` which uses GLib and is excluded from
+the WASM target. v0.7.0 ports the relevant subset (~600 LOC) into
+`wasm/wasm_platform.c`, GLib-stripped, so a browser embedding the WASM
+TPM gets the full v0.6.0 V2.7 RC1 EK Credential Profile surface:
+
+- Six V2.7 RC1 EK persistent handles (`0x810100A0/B0/B2/B4/B5/B6`)
+  populated with byte-exact Tables 13/14 templates.
+- Six V2.7 §5.3.1 NV cert slots (`0x01c00060/62/64/70/72/74`)
+  populated with X.509 EK certs carrying the NIST CSOR OID per V2.7
+  §6.2.x.
+
+#### New WASM entry points (exported via Emscripten)
+
+| Symbol | Purpose |
+|---|---|
+| `_tpm_wasm_provision_v2p7` | Run the 6-EK + 6-cert + 6-NV provisioning sequence in-process via `TPMLIB_Process` (no socket). Idempotent: re-runs against an already-provisioned TPM log + continue. |
+| `_tpm_wasm_get_v2p7_status` | Read back the 6-byte status array (0=untried, 1=ok, 2=fail). |
+| `_tpm_wasm_get_v2p7_log` | Read back a human-readable tail log for diagnostics in the JS console. |
+
+#### GLib-strip pass
+
+The native code in `swtpm_setup/swtpm.c` uses `g_autofree`,
+`g_strdup_printf`, `g_malloc/realloc`, and a `transfer()` socket
+helper. The WASM port keeps the wire-format identical but:
+
+- `g_autofree` → manual `free` in a `cleanup:` block (mostly in
+  `wasm_tpm2_createprimary_pqc` and `wasm_pqc_build_cert_der`).
+- `g_malloc/realloc` → `malloc/realloc`.
+- `g_strdup_printf` → drop entirely (cert generation uses fixed CN
+  strings).
+- `transfer()` → `wasm_tpm_transfer` which is a one-call
+  `TPMLIB_Process` wrapper. Both paths return 0 on TPM success.
+
+The PolicyB digests + V2.7 NV index constants are pulled from
+`swtpm/src/swtpm_setup/tcg_pqc_ek_constants.h` (header-only, no GLib),
+added to the WASM include path in `wasm/CMakeLists.txt`.
+
+#### Smoke test (`wasm/test_node.mjs`)
+
+`node test_node.mjs` exercises the new entry points. In Node-only
+(no `Module._pqcBridge` registered, so EK CreatePrimary returns
+DRBG-filled placeholder pubkeys) the status array reads `[2,2,2,2,2,2]`
+— a clean fail mode. In a browser with the pqctoday-hub PQC bridge
+registered, every slot is expected to read 1.
+
+#### Build size
+
+`pqctpm.wasm` grows from 281 KB → 2.1 MB because the cert generation
+pulls in OpenSSL's X.509 signing + ASN.1 encoder surface. Acceptable
+trade for in-browser PQC remote attestation.
+
+---
+
 ## [0.6.0] — 2026-05-13
 
 ### V2.7 RC1 PQC EK Certificates — generation + NV provisioning

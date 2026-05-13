@@ -69,6 +69,7 @@ set(INC_DIRS
     "${CMAKE_SOURCE_DIR}/../libtpms/include"
     "${CMAKE_SOURCE_DIR}/../libtpms/include/libtpms"
     "${OPENSSL_WASM_DIR}/include"
+    "${CMAKE_SOURCE_DIR}/../swtpm/src/swtpm_setup"  # tcg_pqc_ek_constants.h
 )
 
 # ── Compile flags ────────────────────────────────────────────────────────────
@@ -112,6 +113,9 @@ set(EXPORTED_FUNCTIONS
     "_tpm_wasm_get_nv"
     "_tpm_wasm_set_nv"
     "_tpm_wasm_get_nv_size"
+    "_tpm_wasm_provision_v2p7"
+    "_tpm_wasm_get_v2p7_status"
+    "_tpm_wasm_get_v2p7_log"
     "_malloc"
     "_free"
 )
