@@ -3,7 +3,7 @@
 # The real build systems are autotools (libtpms, swtpm) and CMake (cross-val
 # harness, future WASM). This Makefile wraps common developer-facing targets.
 
-.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck attestation-xcheck ek-conformance-xcheck ek-cert-conformance-xcheck clean
+.PHONY: help crossval crossval-build crossval-run crossval-softhsm compliance compliance-softhsm docker-dev docker-xcheck wolftpm-xcheck attestation-xcheck ek-conformance-xcheck ek-cert-conformance-xcheck wasm-build wasm-test clean
 
 help:
 	@echo "pqctoday-tpm — developer targets"
@@ -16,6 +16,8 @@ help:
 	@echo "  make wolftpm-xcheck Runtime cross-check: wolfTPM PR #445 ↔ pqctoday-tpm"
 	@echo "  make attestation-xcheck  Runtime TPM2_Quote/Certify with ML-DSA AK (dual-verified)"
 	@echo "  make ek-conformance-xcheck  V2.7 RC1 PQC EK template byte-exact conformance"
+	@echo "  make wasm-build     Build the WASM TPM emulator (Emscripten)"
+	@echo "  make wasm-test      Node-side test of tpm_wasm_provision_v2p7 + helpers"
 	@echo "  make clean          Clean build artifacts under tests/crossval/build"
 	@echo
 
@@ -123,6 +125,25 @@ compliance-softhsm: crossval-build
 	    bash -c 'mkdir -p /tmp/tokens && \
 	             printf "directories.tokendir = /tmp/tokens\nobjectstore.backend = file\nlog.level = ERROR\n" > /tmp/softhsm2.conf && \
 	             bash tests/compliance/v185_compliance.sh'
+
+## WASM build + tests ────────────────────────────────────────────────────────
+# Build the Emscripten WASM TPM emulator. Output goes to wasm/dist/pqctpm.{js,wasm}.
+# Requires emcc (Emscripten 4+) and pqctoday-hsm's OpenSSL WASM build
+# (libcrypto.a at ../pqctoday-hsm/deps/openssl-wasm/lib/ by default).
+wasm-build:
+	./wasm/build.sh
+
+# Node-side test of the WASM provisioning flow added in wasm_platform.c.
+# Mirrors the discipline of the native compliance suites: registers a
+# minimal bridge matching pqctoday-hub/src/wasm/pqcCryptoBridge.ts coverage,
+# drives tpm_wasm_provision_v2p7 + helpers end-to-end, asserts on:
+#   1. Status array shape (2/6 supported, 4/6 untried per current bridge)
+#   2. TPM NOT in failure mode after provisioning (regression catcher for
+#      the 2026-05-13 0x101 trap with un-bridged paramsets)
+#   3. AK ML-DSA-65 persistent at 0x810100A1 with FIPS 204 pubkey size
+#   4. ML-KEM-768 EK persistent at 0x810100A0
+wasm-test:
+	node wasm/test_provisioning.mjs
 
 clean:
 	rm -rf tests/crossval/build

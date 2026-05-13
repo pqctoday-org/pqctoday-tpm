@@ -423,8 +423,169 @@ cleanup:
     XFREE(sig,    NULL, DYNAMIC_TYPE_TMP_BUFFER);
 }
 
+/* ────────────────────────────────────────────────────────────────────────
+ * --verify-bundle <path.json>
+ *
+ * Offline mode: read an attestation bundle JSON (the same shape the hub
+ * AttestationPanel exports via the "JSON bundle" download button) and run
+ * the SAME wolfCrypt + OpenSSL verifiers we use against live TPM output
+ * against the pre-captured bytes. This gives an independent cross-stack
+ * confirmation of any bundle the browser produces — without needing a
+ * wolfSSL WASM build.
+ *
+ * Bundle shape (matches AttestationPanel.tsx downloadBundle):
+ *   { "operation": "quote" | "certify",
+ *     "algorithm": "ML-DSA-44" | "ML-DSA-65" | "ML-DSA-87",
+ *     "handle":    "0x810100a1",
+ *     "pubkey_hex":    "..." ,
+ *     "attest_hex":    "..." ,
+ *     "signature_hex": "..." }
+ *
+ * Lightweight ad-hoc JSON extractor — the bundle is self-generated with a
+ * known shape, so a brittle scanner is fine; no third-party JSON dep.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/* Read entire file into a freshly-malloc'd NUL-terminated buffer. */
+static char *slurp_file(const char *path, size_t *out_len) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    fseek(fp, 0, SEEK_END);
+    long n = ftell(fp);
+    if (n < 0) { fclose(fp); return NULL; }
+    fseek(fp, 0, SEEK_SET);
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) { fclose(fp); return NULL; }
+    if (fread(buf, 1, (size_t)n, fp) != (size_t)n) {
+        free(buf); fclose(fp); return NULL;
+    }
+    fclose(fp);
+    buf[n] = '\0';
+    if (out_len) *out_len = (size_t)n;
+    return buf;
+}
+
+/* Find "<key>" : "<value>" → newly-allocated value string (NUL-terminated).
+ * Returns NULL if the key isn't found. Doesn't handle escaped quotes
+ * (none of our bundle's values contain them). */
+static char *json_string_field(const char *json, const char *key) {
+    char needle[64];
+    snprintf(needle, sizeof(needle), "\"%s\"", key);
+    const char *p = strstr(json, needle);
+    if (!p) return NULL;
+    p += strlen(needle);
+    while (*p == ' ' || *p == '\t' || *p == ':' || *p == '\n' || *p == '\r') p++;
+    if (*p != '"') return NULL;
+    p++;
+    const char *end = strchr(p, '"');
+    if (!end) return NULL;
+    size_t n = (size_t)(end - p);
+    char *out = (char *)malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, p, n);
+    out[n] = '\0';
+    return out;
+}
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F') return 10 + (c - 'A');
+    return -1;
+}
+static byte *hex_to_bytes(const char *hex, word32 *out_len) {
+    size_t n = strlen(hex);
+    if (n & 1u) return NULL;
+    byte *b = (byte *)malloc(n / 2);
+    if (!b) return NULL;
+    for (size_t i = 0; i < n / 2; i++) {
+        int hi = hex_nibble(hex[2 * i]);
+        int lo = hex_nibble(hex[2 * i + 1]);
+        if (hi < 0 || lo < 0) { free(b); return NULL; }
+        b[i] = (byte)((hi << 4) | lo);
+    }
+    *out_len = (word32)(n / 2);
+    return b;
+}
+
+static TPMI_MLDSA_PARAMETER_SET ps_from_name(const char *name) {
+    if (!name) return 0;
+    if (!strcmp(name, "ML-DSA-44")) return TPM_MLDSA_44;
+    if (!strcmp(name, "ML-DSA-65")) return TPM_MLDSA_65;
+    if (!strcmp(name, "ML-DSA-87")) return TPM_MLDSA_87;
+    return 0;
+}
+
+static int verify_bundle_file(const char *path) {
+    char *json = slurp_file(path, NULL);
+    if (!json) {
+        fprintf(stderr, "verify-bundle: cannot read %s\n", path);
+        return 2;
+    }
+    char *op_str  = json_string_field(json, "operation");
+    char *alg_str = json_string_field(json, "algorithm");
+    char *pub_hex = json_string_field(json, "pubkey_hex");
+    char *att_hex = json_string_field(json, "attest_hex");
+    char *sig_hex = json_string_field(json, "signature_hex");
+    int  rc = 2;
+
+    if (!op_str || !alg_str || !pub_hex || !att_hex || !sig_hex) {
+        fprintf(stderr,
+                "verify-bundle: missing one of operation/algorithm/pubkey_hex/"
+                "attest_hex/signature_hex in %s\n", path);
+        goto out;
+    }
+    TPMI_MLDSA_PARAMETER_SET ps = ps_from_name(alg_str);
+    if (ps == 0) {
+        fprintf(stderr, "verify-bundle: unknown algorithm '%s'\n", alg_str);
+        goto out;
+    }
+
+    word32 pubLen = 0, attLen = 0, sigLen = 0;
+    byte *pub = hex_to_bytes(pub_hex, &pubLen);
+    byte *att = hex_to_bytes(att_hex, &attLen);
+    byte *sig = hex_to_bytes(sig_hex, &sigLen);
+    if (!pub || !att || !sig) {
+        fprintf(stderr, "verify-bundle: hex decode failed\n");
+        free(pub); free(att); free(sig);
+        goto out;
+    }
+
+    printf("=== %s ↔ wolfCrypt + OpenSSL verify (offline bundle) ===\n", path);
+    printf("  operation: %s\n", op_str);
+    printf("  algorithm: %s\n", alg_str);
+    printf("  pub %u B / attest %u B / sig %u B (FIPS expected pub %u, sig %u)\n",
+           pubLen, attLen, sigLen,
+           mldsa_pub_size(ps), mldsa_sig_size(ps));
+
+    int sizeOk = (pubLen == mldsa_pub_size(ps)) && (sigLen == mldsa_sig_size(ps));
+    result(sizeOk, "FIPS 204 size sanity (pub/sig)");
+
+    int wcrc = wolfcrypt_verify_mldsa(wc_level_for(ps),
+                                      pub, pubLen, att, attLen, sig, sigLen);
+    result(wcrc, "wolfCrypt verify");
+
+    int orc = openssl_verify_mldsa(ps,
+                                   pub, pubLen, att, attLen, sig, sigLen);
+    result(orc, "OpenSSL EVP verify");
+
+    free(pub); free(att); free(sig);
+    printf("\n  %d passed, %d failed\n", g_pass, g_fail);
+    rc = (g_fail == 0) ? 0 : 1;
+
+out:
+    free(op_str); free(alg_str); free(pub_hex); free(att_hex); free(sig_hex);
+    free(json);
+    return rc;
+}
+
 int main(int argc, char *argv[])
 {
+    /* Offline-verify mode: --verify-bundle <path.json>. Doesn't touch the
+     * TPM — runs only the wolfCrypt+OpenSSL verifiers against the bundle. */
+    if (argc >= 3 && strcmp(argv[1], "--verify-bundle") == 0) {
+        return verify_bundle_file(argv[2]);
+    }
+
     WOLFTPM2_DEV dev; XMEMSET(&dev, 0, sizeof(dev));
     int rc;
     const char *outdir = (argc >= 2) ? argv[1] : NULL;
