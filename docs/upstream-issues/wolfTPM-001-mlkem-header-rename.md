@@ -3,7 +3,7 @@
 **Target:** [wolfSSL/wolfTPM](https://github.com/wolfSSL/wolfTPM)
 **Severity:** build break with current wolfSSL master
 **Affects:** wolfTPM v4.0.0 (PR #445 merge commit `fbbf6fe`); presumably HEAD too unless already fixed
-**Status (pqctoday-tpm):** worked around in `docker/Dockerfile.xcheck` with a symlink
+**Status (pqctoday-tpm):** **RESOLVED upstream 2026-05-11** — see footer.
 
 ---
 
@@ -124,3 +124,22 @@ This is a wolfSSL/wolfTPM build-system issue — no V1.85 spec implications. Rep
 Open at https://github.com/wolfSSL/wolfTPM/issues/new with this content. Title suggestion:
 
 > `configure.ac: --enable-pqc fails with current wolfSSL master because mlkem.h was renamed wc_mlkem.h`
+
+---
+
+## Resolution (2026-05-12)
+
+Filed and resolved:
+
+- **Issue:** [wolfSSL/wolfTPM#499](https://github.com/wolfSSL/wolfTPM/issues/499) — closed 2026-05-12.
+- **Our PR:** [wolfSSL/wolfTPM#500](https://github.com/wolfSSL/wolfTPM/pull/500) (`eramusa:fix-mlkem-header-rename`) — closed 2026-05-03, superseded.
+- **Merged fix:** [wolfSSL/wolfTPM#501](https://github.com/wolfSSL/wolfTPM/pull/501) (`aidangarske:fix-upstream-pqc`) — **MERGED 2026-05-11 18:34 UTC**, approved by `dgarske`. Merge commit `0ae18dcd138f2ea2aba7d146d05115cf294c07bb`. Patches `configure.ac` (+21/-8) plus adds a wolfSSL version-matrix CI workflow (`v5.8.0-stable / v5.9.1-stable / master` × PQC).
+
+**Local action taken:**
+
+- Bumped `WOLFTPM_REF` to `0ae18dc…` in `docker/Dockerfile.xcheck` and `.github/workflows/xcheck.yml`.
+- Removed the `ln -sf wc_mlkem.h /opt/wolfssl/include/wolfssl/wolfcrypt/mlkem.h` workaround from both files.
+- Re-ran `make wolftpm-xcheck` against the new pin: **29 PASS / 0 FAIL** without the symlink — upstream fix verified end-to-end.
+- Closed `pqctoday-org/pqctoday-tpm#6` (G3) referencing this resolution.
+
+This document is kept as a historical record of how the bug was identified and the PR draft we filed.

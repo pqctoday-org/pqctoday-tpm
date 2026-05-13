@@ -30,7 +30,10 @@ env:
   # Pinned so cross-impl results are reproducible. Bump deliberately and
   # re-run wolftpm-xcheck locally to confirm before merging.
   WOLFSSL_REF: 7b53303
-  WOLFTPM_REF: fbbf6fe   # PR #445 merge into wolfTPM v4.0.0
+  # PR #501 merge — closes wolfSSL/wolfTPM#499 (mlkem.h probe bug we filed),
+  # built on top of PR #445's V1.85 PQC support. Drops the in-tree symlink
+  # workaround. Bump deliberately and re-run wolftpm-xcheck before merging.
+  WOLFTPM_REF: 0ae18dcd138f2ea2aba7d146d05115cf294c07bb
 
 jobs:
   xcheck:
@@ -126,10 +129,6 @@ jobs:
               CFLAGS="-fPIC -DWC_RSA_NO_PADDING"
           make -j"$(nproc)"
           sudo make install
-
-      - name: Workaround wolfTPM upstream bug (mlkem.h ↔ wc_mlkem.h)
-        # See docs/upstream-issues/wolfTPM-001-mlkem-header-rename.md
-        run: sudo ln -sf wc_mlkem.h /opt/wolfssl/include/wolfssl/wolfcrypt/mlkem.h
 
       # ── wolfTPM with --enable-pqc (pinned) ───────────────────────────────
       - name: Build wolfTPM @ ${{ env.WOLFTPM_REF }} with --enable-pqc + --enable-swtpm
