@@ -1,0 +1,185 @@
+/*
+ * v2p7_ek_template_vectors.h
+ *
+ * Reference byte vectors for the V2.7 RC1 PQC EK Templates per
+ * TCG EK Credential Profile §5.4.6.5 (Table 13, ML-KEM Storage) and
+ * §5.4.6.6 (Table 14, ML-DSA Signing).
+ *
+ * Each array is a hand-encoded TPMT_PUBLIC body, marshalled per V1.85
+ * Part 2 §12.2.4 Table 200 in big-endian wire order:
+ *
+ *     type (2) | nameAlg (2) | objectAttributes (4) |
+ *     authPolicy.size (2) | authPolicy.buffer (size) |
+ *     parameters (TPMS_MLKEM_PARMS 8 B or TPMS_MLDSA_PARMS 3 B) |
+ *     unique.size (2 — Empty)
+ *
+ * Source: docs/standards/TCG-EK-Credential-Profile-...-V2p7-RC1.pdf,
+ *         extracted into docs/TPMdocextract.md §17 (Tables 7, 8, 13, 14).
+ *
+ * Cross-checked against the spec by inspection. See sibling README.md for
+ * the layout and update procedure.
+ *
+ * NEVER auto-generate this file from the TPM-side code under test — that
+ * defeats the whole point.
+ */
+
+#ifndef PQCTODAY_TPM_V2P7_EK_TEMPLATE_VECTORS_H
+#define PQCTODAY_TPM_V2P7_EK_TEMPLATE_VECTORS_H
+
+#include <stddef.h>
+
+/* ────────────────────────────────────────────────────────────────────────
+ * ML-KEM-512 EK (Storage) — Table 13 column "ML-KEM-512 (H-26 or H-29)"
+ *   type = TPM_ALG_MLKEM (0x00A0)
+ *   nameAlg = TPM_ALG_SHA256 (0x000B)
+ *   objectAttributes = attributes-storage (0x000300B2)
+ *   authPolicy = 32 B PolicyBSHA256
+ *   sym.alg=AES(0x0006), keyBits.aes=128, mode=CFB(0x0043), parmSet=TPM_MLKEM_512(0x0001)
+ *   unique.size = 0
+ *   total = 52 bytes
+ * ──────────────────────────────────────────────────────────────────────── */
+static const unsigned char v2p7_ek_mlkem512[] = {
+    /* type */              0x00, 0xA0,
+    /* nameAlg */            0x00, 0x0B,
+    /* objectAttributes */   0x00, 0x03, 0x00, 0xB2,
+    /* authPolicy.size */    0x00, 0x20,
+    /* PolicyBSHA256 (Table 8): */
+    0xCA, 0x3D, 0x0A, 0x99, 0xA2, 0xB9, 0x39, 0x06,
+    0xF7, 0xA3, 0x34, 0x24, 0x14, 0xEF, 0xCF, 0xB3,
+    0xA3, 0x85, 0xD4, 0x4C, 0xD1, 0xFD, 0x45, 0x90,
+    0x89, 0xD1, 0x9B, 0x50, 0x71, 0xC0, 0xB7, 0xA0,
+    /* TPMS_MLKEM_PARMS: sym.alg=AES, keyBits=128, mode=CFB, parmSet=MLKEM_512 */
+    0x00, 0x06, 0x00, 0x80, 0x00, 0x43, 0x00, 0x01,
+    /* unique.size = 0 */    0x00, 0x00,
+};
+#define V2P7_EK_MLKEM512_LEN    52u
+
+/* ────────────────────────────────────────────────────────────────────────
+ * ML-KEM-768 EK (Storage) — Table 13 column "ML-KEM-768 (H-27 or H-30)"
+ *   nameAlg = SHA384 (0x000C), keyBits.aes = 256, parmSet=MLKEM_768
+ *   authPolicy = 48 B PolicyBSHA384
+ *   total = 68 bytes
+ * ──────────────────────────────────────────────────────────────────────── */
+static const unsigned char v2p7_ek_mlkem768[] = {
+    0x00, 0xA0,
+    0x00, 0x0C,
+    0x00, 0x03, 0x00, 0xB2,
+    0x00, 0x30,
+    /* PolicyBSHA384 (Table 8): */
+    0xB2, 0x6E, 0x7D, 0x28, 0xD1, 0x1A, 0x50, 0xBC,
+    0x53, 0xD8, 0x82, 0xBC, 0xF5, 0xFD, 0x3A, 0x1A,
+    0x07, 0x41, 0x48, 0xBB, 0x35, 0xD3, 0xB4, 0xE4,
+    0xCB, 0x1C, 0x0A, 0xD9, 0xBD, 0xE4, 0x19, 0xCA,
+    0xCB, 0x47, 0xBA, 0x09, 0x69, 0x96, 0x46, 0x15,
+    0x0F, 0x9F, 0xC0, 0x00, 0xF3, 0xF8, 0x0E, 0x12,
+    /* TPMS_MLKEM_PARMS: AES-256-CFB, MLKEM_768 */
+    0x00, 0x06, 0x01, 0x00, 0x00, 0x43, 0x00, 0x02,
+    0x00, 0x00,
+};
+#define V2P7_EK_MLKEM768_LEN    68u
+
+/* ────────────────────────────────────────────────────────────────────────
+ * ML-KEM-1024 EK (Storage) — Table 13 "ML-KEM-1024 (H-28 or H-31)"
+ *   nameAlg = SHA512 (0x000D), keyBits.aes = 256, parmSet=MLKEM_1024
+ *   authPolicy = 64 B PolicyBSHA512
+ *   total = 84 bytes
+ * ──────────────────────────────────────────────────────────────────────── */
+static const unsigned char v2p7_ek_mlkem1024[] = {
+    0x00, 0xA0,
+    0x00, 0x0D,
+    0x00, 0x03, 0x00, 0xB2,
+    0x00, 0x40,
+    /* PolicyBSHA512 (Table 8): */
+    0xB8, 0x22, 0x1C, 0xA6, 0x9E, 0x85, 0x50, 0xA4,
+    0x91, 0x4D, 0xE3, 0xFA, 0xA6, 0xA1, 0x8C, 0x07,
+    0x2C, 0xC0, 0x12, 0x08, 0x07, 0x3A, 0x92, 0x8D,
+    0x5D, 0x66, 0xD5, 0x9E, 0xF7, 0x9E, 0x49, 0xA4,
+    0x29, 0xC4, 0x1A, 0x6B, 0x26, 0x95, 0x71, 0xD5,
+    0x7E, 0xDB, 0x25, 0xFB, 0xDB, 0x18, 0x38, 0x42,
+    0x56, 0x08, 0xB4, 0x13, 0xCD, 0x61, 0x6A, 0x5F,
+    0x6D, 0xB5, 0xB6, 0x07, 0x1A, 0xF9, 0x9B, 0xEA,
+    /* TPMS_MLKEM_PARMS: AES-256-CFB, MLKEM_1024 */
+    0x00, 0x06, 0x01, 0x00, 0x00, 0x43, 0x00, 0x03,
+    0x00, 0x00,
+};
+#define V2P7_EK_MLKEM1024_LEN   84u
+
+/* ────────────────────────────────────────────────────────────────────────
+ * ML-DSA-44 EK (Signing) — Table 14 column "ML-DSA-44 (H-32 or H-35)"
+ *   type = TPM_ALG_MLDSA (0x00A1)
+ *   nameAlg = SHA256 (0x000B)
+ *   objectAttributes = attributes-signing (0x000500B2)
+ *   authPolicy = 32 B PolicyBSHA256
+ *   TPMS_MLDSA_PARMS: parmSet=MLDSA_44(0x0001), allowExternalMu=0 (NO)
+ *   total = 47 bytes
+ * ──────────────────────────────────────────────────────────────────────── */
+static const unsigned char v2p7_ek_mldsa44[] = {
+    0x00, 0xA1,
+    0x00, 0x0B,
+    0x00, 0x05, 0x00, 0xB2,
+    0x00, 0x20,
+    0xCA, 0x3D, 0x0A, 0x99, 0xA2, 0xB9, 0x39, 0x06,
+    0xF7, 0xA3, 0x34, 0x24, 0x14, 0xEF, 0xCF, 0xB3,
+    0xA3, 0x85, 0xD4, 0x4C, 0xD1, 0xFD, 0x45, 0x90,
+    0x89, 0xD1, 0x9B, 0x50, 0x71, 0xC0, 0xB7, 0xA0,
+    /* TPMS_MLDSA_PARMS: parmSet=MLDSA_44, allowExternalMu=NO */
+    0x00, 0x01, 0x00,
+    0x00, 0x00,
+};
+#define V2P7_EK_MLDSA44_LEN     47u
+
+/* ────────────────────────────────────────────────────────────────────────
+ * ML-DSA-65 EK (Signing) — Table 14 "ML-DSA-65 (H-33 or H-36)"
+ *   nameAlg = SHA384, authPolicy 48 B PolicyBSHA384, parmSet=MLDSA_65
+ *   total = 63 bytes
+ * ──────────────────────────────────────────────────────────────────────── */
+static const unsigned char v2p7_ek_mldsa65[] = {
+    0x00, 0xA1,
+    0x00, 0x0C,
+    0x00, 0x05, 0x00, 0xB2,
+    0x00, 0x30,
+    0xB2, 0x6E, 0x7D, 0x28, 0xD1, 0x1A, 0x50, 0xBC,
+    0x53, 0xD8, 0x82, 0xBC, 0xF5, 0xFD, 0x3A, 0x1A,
+    0x07, 0x41, 0x48, 0xBB, 0x35, 0xD3, 0xB4, 0xE4,
+    0xCB, 0x1C, 0x0A, 0xD9, 0xBD, 0xE4, 0x19, 0xCA,
+    0xCB, 0x47, 0xBA, 0x09, 0x69, 0x96, 0x46, 0x15,
+    0x0F, 0x9F, 0xC0, 0x00, 0xF3, 0xF8, 0x0E, 0x12,
+    /* TPMS_MLDSA_PARMS: parmSet=MLDSA_65, allowExternalMu=NO */
+    0x00, 0x02, 0x00,
+    0x00, 0x00,
+};
+#define V2P7_EK_MLDSA65_LEN     63u
+
+/* ────────────────────────────────────────────────────────────────────────
+ * ML-DSA-87 EK (Signing) — Table 14 "ML-DSA-87 (H-34 or H-37)"
+ *   nameAlg = SHA512, authPolicy 64 B PolicyBSHA512, parmSet=MLDSA_87
+ *   total = 79 bytes
+ * ──────────────────────────────────────────────────────────────────────── */
+static const unsigned char v2p7_ek_mldsa87[] = {
+    0x00, 0xA1,
+    0x00, 0x0D,
+    0x00, 0x05, 0x00, 0xB2,
+    0x00, 0x40,
+    0xB8, 0x22, 0x1C, 0xA6, 0x9E, 0x85, 0x50, 0xA4,
+    0x91, 0x4D, 0xE3, 0xFA, 0xA6, 0xA1, 0x8C, 0x07,
+    0x2C, 0xC0, 0x12, 0x08, 0x07, 0x3A, 0x92, 0x8D,
+    0x5D, 0x66, 0xD5, 0x9E, 0xF7, 0x9E, 0x49, 0xA4,
+    0x29, 0xC4, 0x1A, 0x6B, 0x26, 0x95, 0x71, 0xD5,
+    0x7E, 0xDB, 0x25, 0xFB, 0xDB, 0x18, 0x38, 0x42,
+    0x56, 0x08, 0xB4, 0x13, 0xCD, 0x61, 0x6A, 0x5F,
+    0x6D, 0xB5, 0xB6, 0x07, 0x1A, 0xF9, 0x9B, 0xEA,
+    /* TPMS_MLDSA_PARMS: parmSet=MLDSA_87, allowExternalMu=NO */
+    0x00, 0x03, 0x00,
+    0x00, 0x00,
+};
+#define V2P7_EK_MLDSA87_LEN     79u
+
+/* Compile-time size assertions — catch any future edit that drifts size. */
+_Static_assert(sizeof(v2p7_ek_mlkem512)  == V2P7_EK_MLKEM512_LEN,  "ML-KEM-512 EK template byte length must equal 52");
+_Static_assert(sizeof(v2p7_ek_mlkem768)  == V2P7_EK_MLKEM768_LEN,  "ML-KEM-768 EK template byte length must equal 68");
+_Static_assert(sizeof(v2p7_ek_mlkem1024) == V2P7_EK_MLKEM1024_LEN, "ML-KEM-1024 EK template byte length must equal 84");
+_Static_assert(sizeof(v2p7_ek_mldsa44)   == V2P7_EK_MLDSA44_LEN,   "ML-DSA-44 EK template byte length must equal 47");
+_Static_assert(sizeof(v2p7_ek_mldsa65)   == V2P7_EK_MLDSA65_LEN,   "ML-DSA-65 EK template byte length must equal 63");
+_Static_assert(sizeof(v2p7_ek_mldsa87)   == V2P7_EK_MLDSA87_LEN,   "ML-DSA-87 EK template byte length must equal 79");
+
+#endif /* PQCTODAY_TPM_V2P7_EK_TEMPLATE_VECTORS_H */
