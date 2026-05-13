@@ -6,6 +6,8 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-05-13
+
 ### xcheck — drop `mlkem.h` symlink workaround (upstream wolfSSL/wolfTPM#499 closed)
 
 The wolfTPM `configure.ac` defect we filed at [wolfSSL/wolfTPM#499](https://github.com/wolfSSL/wolfTPM/issues/499)
@@ -22,6 +24,8 @@ needs the `ln -sf wc_mlkem.h .../mlkem.h` workaround.
 
 `docs/upstream-issues/wolfTPM-001-mlkem-header-rename.md` is preserved with a
 "Resolution" footer for historical context.
+
+## [0.3.0] — 2026-05-04
 
 ### WASM Milestone 3 — Real PQC crypto via SoftHSMv3 bridge (Issue #9)
 
