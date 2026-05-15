@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*                                                                              */
-/*  TPM2_Decapsulate — V1.85 ML-KEM key decapsulation (§29.5.2)               */
+/*  TPM2_Decapsulate — V1.85 ML-KEM key decapsulation (Part 3 §14.11)         */
 /*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */

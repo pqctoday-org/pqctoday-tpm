@@ -1153,7 +1153,7 @@ err_too_short:
     return 1;
 }
 
-/* Create a PQC (ML-KEM or ML-DSA) primary key — V1.85 §29.
+/* Create a PQC (ML-KEM or ML-DSA) primary key — V1.85 Part 3 §24.1.
  *
  * The serialized template is:
  *   type(2) + nameAlg(2) + attrs(4) + authPolicy.size(2) + authPolicy +
@@ -1436,7 +1436,7 @@ static int swtpm_tpm2_createprimary_ak_mldsa65(struct swtpm *self, uint32_t *cur
     /* TPMS_MLDSA_PARMS (V1.85 RC4 Table 229): { parameterSet, allowExternalMu }.
      *   parameterSet(2) + allowExternalMu(1) = 3 bytes total.
      * allowExternalMu = YES so attestation flows that use TPM2_SignDigest
-     * over a pre-computed digest (per V1.85 §29.2.1) are accepted. The
+     * over a pre-computed digest (per V1.85 Part 3 §20.7) are accepted. The
      * Phase 3 AK is also `restricted` so SignDigest will still be rejected
      * by the restriction gate — but unrestricted derived AKs (e.g. IDevID)
      * provisioned from this template will work. */

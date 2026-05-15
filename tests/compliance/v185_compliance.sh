@@ -469,8 +469,8 @@ grep -q "CryptMlKemDecapsulate" "$CRYPTUTIL" && pass "CryptSecretDecrypt: CryptM
 grep -q "mldsaScheme" "$CRYPTUTIL"           && pass "CryptSelectSignScheme: synthetic mldsaScheme present for ML-DSA" \
                                              || fail "CryptSelectSignScheme: mldsaScheme missing"
 
-# TPM2_SignDigest: restricted key check present (V1.85 §29.2.1)
-grep -q "TPMA_OBJECT.*restricted" "$PQCMLDSA" && pass "TPM2_SignDigest: restricted-key guard present (§29.2.1)" \
+# TPM2_SignDigest: restricted key check present (V1.85 Part 3 §20.7)
+grep -q "TPMA_OBJECT.*restricted" "$PQCMLDSA" && pass "TPM2_SignDigest: restricted-key guard present (§20.7)" \
                                                || fail "TPM2_SignDigest: restricted-key guard missing"
 
 # V1.85 §12.2.3.6 Table 229: TPMS_MLDSA_PARMS.allowExternalMu must be enforced

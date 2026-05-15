@@ -491,7 +491,7 @@ union TPMU_ENCRYPTED_SECRET {
 | §12.2.3.2 TPMU_PUBLIC_ID (Table 225) | Part 2 p.192 |
 | §12.5-12.6 MakeCredential / ActivateCredential wire formats | Part 3 pp.192-200 (Phase 3) |
 | §22.1.2 Restricted signing key policy | Part 1 §22.1.2 (Phase 3) |
-| §29.2.1 TPM2_SignDigest restriction rule | Part 3 §29.2.1 (Phase 3) |
+| §20.7 TPM2_SignDigest restriction rule | Part 3 §20.7 p.186 (Phase 3) |
 
 ---
 
@@ -527,7 +527,7 @@ Name format for SHA-256 nameAlg: `0x000B` (2 B) || SHA-256(TPMT_PUBLIC) (32 B) =
 
 ---
 
-### 13.2 TPM2_MakeCredential (Part 3 §12.5.2, CC = 0x00000172)
+### 13.2 TPM2_MakeCredential (Part 3 §12.6.2, CC = 0x00000172)
 
 Tag: `TPM_ST_NO_SESSIONS` (no authorization required — uses public key only).
 
@@ -557,7 +557,7 @@ The seed derivation uses `CryptSecretEncrypt(MLKEM)` → `CryptMlKemEncapsulate`
 
 ---
 
-### 13.3 TPM2_ActivateCredential (Part 3 §12.6.2, CC = 0x00000147)
+### 13.3 TPM2_ActivateCredential (Part 3 §12.5.2, CC = 0x00000147)
 
 Tag: `TPM_ST_SESSIONS` (two authorizations required: H1 activateHandle + H2 keyHandle).
 
@@ -593,7 +593,7 @@ both handles have `userWithAuth = 1` and empty `authValue`. Each session = 9 byt
 
 ---
 
-### 13.4 TPM2_SignDigest (Part 3 §29.2.1, CC = 0x000001A6) — V1.85
+### 13.4 TPM2_SignDigest (Part 3 §20.7, CC = 0x000001A6) — V1.85
 
 Tag: `TPM_ST_SESSIONS`.
 
@@ -627,7 +627,7 @@ TPMT_SIGNATURE:
 authArea (session response)
 ```
 
-**Restriction rule (V1.85 §29.2.1; Part 1 §22.1.2):** Restricted signing keys (`TPMA_OBJECT.restricted = 1`) MUST be rejected with `TPM_RC_ATTRIBUTES + TPM_RC_H + TPM_RC_1 = 0x182`. TPM2_SignDigest accepts arbitrary pre-hashed data with no hashcheck ticket; allowing restricted keys would bypass the restriction security property. Use `TPM2_Sign` (with a `TPMT_TK_HASHCHECK` ticket) for restricted keys.
+**Restriction rule (V1.85 Part 3 §20.7; Part 1 §22.1.2):** Restricted signing keys (`TPMA_OBJECT.restricted = 1`) MUST be rejected with `TPM_RC_ATTRIBUTES + TPM_RC_H + TPM_RC_1 = 0x182`. TPM2_SignDigest accepts arbitrary pre-hashed data with no hashcheck ticket; allowing restricted keys would bypass the restriction security property. Use `TPM2_Sign` (with a `TPMT_TK_HASHCHECK` ticket) for restricted keys.
 
 **Note on TPMT_SIG_SCHEME wire encoding for NULL scheme:** When `inScheme.scheme = TPM_ALG_NULL` (0x0010), the `TPMU_SIG_SCHEME` is the `nullScheme` arm = `TPMS_EMPTY` = 0 bytes. The wire encoding is just 2 bytes (the scheme selector). The TPM then uses the key's implicit scheme (ML-DSA → TPM_ALG_MLDSA).
 
@@ -1146,7 +1146,7 @@ The same wire formats appear on the JS side in `pqctoday-hub/src/wasm/tpmBridge.
 (`readPublic`, `nvReadPublic`, `nvReadAll`, `nvDefineSpace`, `nvWrite`)
 — they build raw command bytes for `tpm_wasm_process`.
 
-### 18.1 TPM2_CreatePrimary (Part 3 §24.1, Tables 124-125)
+### 18.1 TPM2_CreatePrimary (Part 3 §24.1, Tables 191-192)
 
 Used by both the 6 V2.7 EK creators (§17.2/§17.3) and the 3 ML-DSA AK
 creators in `wasm_platform.c`.
@@ -1186,7 +1186,7 @@ Response layout used by the WASM port (`wasm_tpm2_createprimary_pqc`):
   port walks to offset `off = 30 + authPolicySize + parmsLen` to find
   `unique.size` (FIPS pubkey size) and the pubkey bytes that follow.
 
-### 18.2 TPM2_EvictControl (Part 3 §28.5, Tables 141-142)
+### 18.2 TPM2_EvictControl (Part 3 §28.5, Tables 230-231)
 
 Used to make a transient EK/AK persistent at its assigned handle
 (`0x810100A0..A3` for ML-DSA AKs / pre-V2.7 ML-KEM-768 EK,
@@ -1212,7 +1212,7 @@ slot is already persistent (idempotent re-run) some implementations
 return `TPM_RC_NV_DEFINED (0x14C)`; the port logs as best-effort and
 continues.
 
-### 18.3 TPM2_FlushContext (Part 3 §28.4, Tables 139-140)
+### 18.3 TPM2_FlushContext (Part 3 §28.4, Tables 228-229)
 
 Releases the transient handle after EvictControl. NO_SESSIONS tag because
 FlushContext takes no authorization.
@@ -1225,7 +1225,7 @@ Parameters
   flushHandle  uint32                        // the transient handle to release
 ```
 
-### 18.4 TPM2_NV_DefineSpace (Part 3 §31.4, Tables 162-163)
+### 18.4 TPM2_NV_DefineSpace (Part 3 §31.3, Tables 245-246)
 
 Defines a §5.3.1 EK cert NV slot. Used in WASM only as a fallback path
 (`wasm_tpm2_nvdefinespace`); the hub-side `tpmBridge.ts nvDefineSpace` is
@@ -1263,7 +1263,7 @@ TPMA_NV_PPREAD         0x00010000   // Platform-authorised reads
 TPMA_NV_OWNERREAD      0x00020000   // Owner-authorised reads
 TPMA_NV_NO_DA          0x02000000   // failed auths don't trigger DA lockout
 TPMA_NV_PLATFORMCREATE 0x40000000   // created by Platform; cleared on TPM2_Clear
-                                    // (matches RSA/ECC EK cert NV slots — Part 3 §29 + §31)
+                                    // (matches RSA/ECC EK cert NV slots — Part 3 §31)
 ```
 
 Combined: `0x42072001` — same set the native `swtpm_setup` uses for
@@ -1273,7 +1273,7 @@ Per V2.7 §5.3.1, `AUTHREAD | PPREAD | OWNERREAD` together mean any of the
 three role authorizations succeed for reads — so a verifier can fetch the
 EK cert with an empty-password session like the EK Cert Reader tab does.
 
-### 18.5 TPM2_NV_Write (Part 3 §31.6, Tables 166-167)
+### 18.5 TPM2_NV_Write (Part 3 §31.7, Tables 253-254)
 
 Writes cert DER to the slot. Must be chunked at `MAX_NV_BUFFER_SIZE`
 (default 1024 B in libtpms; per-TPM via `TPM_PT_NV_BUFFER_MAX`).
@@ -1300,7 +1300,7 @@ increasing `offset` values; the final write's `size` may be less than
 `MAX_NV_BUFFER_SIZE`. Both the WASM C port and the JS-side `tpmBridge.ts
 nvWrite` implement this same chunking.
 
-### 18.6 TPM2_NV_ReadPublic (Part 3 §31.7, Tables 168-169)
+### 18.6 TPM2_NV_ReadPublic (Part 3 §31.6, Tables 251-252)
 
 Used by `tpmBridge.ts nvReadPublic` + `parseNvDataSize` to learn each
 slot's `dataSize` before issuing `NV_Read`.
@@ -1317,7 +1317,7 @@ Response body: `TPM2B_NV_PUBLIC` then `TPM2B_NAME`. Position of
 `dataSize`: after `nvIndex(4) + nameAlg(2) + attributes(4) +
 authPolicy.size(2) + authPolicy bytes(authPolicySize)` = 12 + authPolicySize.
 
-### 18.7 TPM2_NV_Read (Part 3 §31.13, Tables 178-179)
+### 18.7 TPM2_NV_Read (Part 3 §31.13, Tables 265-266)
 
 Reads back the cert DER from a §5.3.1 slot. AUTHREAD permits the
 empty-password session pattern.
@@ -1345,7 +1345,7 @@ in C) walks this chunked: keep calling with incrementing offset until
 either `size` bytes returned == 0 or accumulated bytes match `dataSize`
 from `NV_ReadPublic`.
 
-### 18.8 TPM2_ReadPublic (Part 3 §12.4, Tables 84-85)
+### 18.8 TPM2_ReadPublic (Part 3 §12.4, Tables 24-25)
 
 Reads back a persistent EK's `TPMT_PUBLIC` so the cert provisioner can
 extract the FIPS-sized pubkey bytes for SPKI wrapping.
@@ -1381,8 +1381,13 @@ Mirrors `tests/compliance/clients/pqc_attestation_xcheck.c create_restricted_ak(
 
 NOT set: `adminWithPolicy` (bit 7, 0x80). The native `swtpm_setup`
 template uses `0x000500F2` which sets `adminWithPolicy` SET but has
-EMPTY `authPolicy` — that combination violates V1.85 Part 2 §10.4.5
-("if adminWithPolicy is SET, authPolicy shall NOT be EMPTY"). The WASM
+EMPTY `authPolicy` — that combination conflicts with the `adminWithPolicy`
+attribute semantics in Part 2 §8.3.3.7 (TPMA_OBJECT bit 7) + Part 1 §22.2.5
+(adminWithPolicy: "authorization for an action requiring the ADMIN role
+requires that the authPolicy of the object be satisfied"). *Note: the
+verbatim phrasing "if adminWithPolicy is SET, authPolicy shall NOT be EMPTY"
+is an inference from these sections, not a direct spec quote — flag for
+re-derivation if the constraint is enforced anywhere else.* The WASM
 port intentionally drops `adminWithPolicy` to keep the AK template
 spec-compliant. The native compliance suites accidentally avoid the
 violation because they create fresh per-test AKs rather than using the
@@ -1390,7 +1395,13 @@ swtpm_setup persistent ones.
 
 Also NOT set in the WASM template (parms `allowExternalMu = 0x00`):
 restricted-AK Quote/Certify requires `allowExternalMu = NO` per Part 1
-§22.1.2 + Part 2 §10.5. The native swtpm_setup uses `YES` to permit
+§22.1.2 (Restricted Attribute) + Part 2 §12.2.3.6 Table 229
+(TPMS_MLDSA_PARMS.allowExternalMu) + Part 1 §46.3 (ML-DSA Cryptographic
+Primitives — describes when `allowExternalMu = TRUE` enables SignDigest).
+*Note: the "restricted-AK Quote/Certify requires allowExternalMu = NO"
+rule is an inference from these sections, not a direct spec quote — flag
+for re-derivation if the constraint is enforced anywhere else.*
+The native swtpm_setup uses `YES` to permit
 SignDigest paths — works for SignDigest but trips on Quote
 (reproducible in `make wasm-test` after the v0.7.x port).
 

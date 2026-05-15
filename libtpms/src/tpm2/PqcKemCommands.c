@@ -4,7 +4,7 @@
 /*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
-/*  V1.85 Part 3 §29.5.1 (Encapsulate) and §29.5.2 (Decapsulate).             */
+/*  V1.85 Part 3 §14.10 (Encapsulate) and §14.11 (Decapsulate).               */
 /*  Both delegate to CryptMlKemEncapsulate / CryptMlKemDecapsulate which call  */
 /*  OpenSSL 3.6+ EVP_PKEY_encapsulate / EVP_PKEY_decapsulate.                 */
 /*                                                                              */

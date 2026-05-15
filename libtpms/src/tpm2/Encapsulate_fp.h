@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*                                                                              */
-/*  TPM2_Encapsulate — V1.85 ML-KEM key encapsulation (§29.5.1)               */
+/*  TPM2_Encapsulate — V1.85 ML-KEM key encapsulation (Part 3 §14.10)         */
 /*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */

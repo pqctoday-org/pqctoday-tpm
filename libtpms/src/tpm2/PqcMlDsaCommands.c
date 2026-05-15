@@ -4,15 +4,15 @@
 /*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
-/*  Implemented:                                                                */
-/*    TPM2_SignDigest              (§29.2.1) — real, calls CryptMlDsaSign      */
-/*    TPM2_VerifyDigestSignature   (§29.2.2) — real, calls CryptMlDsaValidate  */
+/*  Implemented (V1.85 RC4 Part 3 section numbers):                            */
+/*    TPM2_SignDigest              (§20.7) — real, calls CryptMlDsaSign        */
+/*    TPM2_VerifyDigestSignature   (§20.4) — real, calls CryptMlDsaValidate    */
 /*                                                                              */
 /*  Phase 4 (streaming, needs MLDSA_SEQUENCE_OBJECT):                          */
-/*    TPM2_SignSequenceStart       (§29.3.1) — returns TPM_RC_COMMAND_CODE     */
-/*    TPM2_SignSequenceComplete    (§29.3.2) — returns TPM_RC_COMMAND_CODE     */
-/*    TPM2_VerifySequenceStart     (§29.4.1) — returns TPM_RC_COMMAND_CODE     */
-/*    TPM2_VerifySequenceComplete  (§29.4.2) — returns TPM_RC_COMMAND_CODE     */
+/*    TPM2_SignSequenceStart       (§17.5) — returns TPM_RC_COMMAND_CODE       */
+/*    TPM2_SignSequenceComplete    (§20.6) — returns TPM_RC_COMMAND_CODE       */
+/*    TPM2_VerifySequenceStart     (§17.6) — returns TPM_RC_COMMAND_CODE       */
+/*    TPM2_VerifySequenceComplete  (§20.3) — returns TPM_RC_COMMAND_CODE       */
 /*                                                                              */
 /********************************************************************************/
 
@@ -30,7 +30,7 @@
  * Sign a pre-computed digest using a loaded ML-DSA or HashML-DSA key.
  *
  * Unlike TPM2_Sign, no hash-check ticket is required — the caller supplies
- * the digest directly (§29.2.1).  context and hint may be zero-length.
+ * the digest directly (Part 3 §20.7).  context and hint may be zero-length.
  *
  * Return:
  *   TPM_RC_KEY        keyHandle does not reference a signing key
@@ -54,7 +54,7 @@ TPM2_SignDigest(SignDigest_In *in, SignDigest_Out *out)
     /* Restricted signing keys may only sign TPM-attested hashes (TPM2_Sign + hashcheck
      * ticket).  TPM2_SignDigest takes an arbitrary digest with no ticket, so it must
      * reject restricted keys to preserve the restriction security property.
-     * V1.85 §29.2.1; Part 1 §22.1.2. */
+     * V1.85 Part 3 §20.7; Part 1 §22.1.2. */
     if(IS_ATTRIBUTE(signObject->publicArea.objectAttributes, TPMA_OBJECT, restricted))
         return TPM_RCS_ATTRIBUTES + RC_SignDigest_keyHandle;
 

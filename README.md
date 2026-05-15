@@ -29,7 +29,7 @@ Fork of [libtpms v0.10.2](https://github.com/stefanberger/libtpms) + [swtpm v0.1
 
 - `TPM2_CreatePrimary` / `TPM2_Create` / `TPM2_Load` with ML-DSA and ML-KEM keys
 - `TPM2_Encapsulate` / `TPM2_Decapsulate` — ML-KEM key encapsulation; `sharedSecret` first per V1.85 §14.10 Table 61; FIPS 203 byte-exact sizes (768 / 1088 / 1568 B ciphertext for 512 / 768 / 1024)
-- `TPM2_SignDigest` / `TPM2_VerifyDigestSignature` — ML-DSA / HashML-DSA digest sign+verify with `TPMA_OBJECT.restricted` rejection (§29.2.1) and `allowExternalMu` enforcement (§12.2.3.6)
+- `TPM2_SignDigest` / `TPM2_VerifyDigestSignature` — ML-DSA / HashML-DSA digest sign+verify with `TPMA_OBJECT.restricted` rejection (Part 3 §20.7 / §20.4) and `allowExternalMu` enforcement (Part 2 §12.2.3.6)
 - `TPM2_SignSequenceStart` / `TPM2_SignSequenceComplete` — full message ML-DSA signing; FIPS 204 byte-exact signatures (2420 / 3309 / 4627 B for 44 / 65 / 87); V1.85 §17.5/§20.6
 - `TPM2_VerifySequenceStart` / `TPM2_SequenceUpdate` / `TPM2_VerifySequenceComplete` — streaming ML-DSA verify; emits `TPMT_TK_VERIFIED` with tag `TPM_ST_MESSAGE_VERIFIED` per §20.3 Table 119; full HMAC binding for non-NULL hierarchies
 - `TPM2_Quote` with restricted ML-DSA-65 AK — Quote-exception allows `hashAlg=NULL` ML-DSA schemes; falls back to AK's nameAlg for PCR digest; signature 3309 B (FIPS 204)
@@ -595,7 +595,7 @@ In-tree references organized by purpose:
 | Path | Purpose |
 | --- | --- |
 | [`docs/standards/`](docs/standards/) | TCG TPM 2.0 Library Specification V1.85 RC4 PDFs (Parts 0–3) — authoritative reference for every wire-format choice |
-| [`docs/TPMdocextract.md`](docs/TPMdocextract.md) | Curated spec extract: algorithm IDs (§6.3), parameter sets (§11), structure definitions (§12.2.3 Tables 229/230/231), capability bits (§8.7 Table 46), Phase 3 + 4 command wire formats (§12.4–§12.6, §14.10/§14.11, §17.5/§17.6, §20.3/§20.6, §29.2.1) |
+| [`docs/TPMdocextract.md`](docs/TPMdocextract.md) | Curated spec extract: algorithm IDs (§6.3), parameter sets (§11), structure definitions (§12.2.3 Tables 229/230/231), capability bits (§8.7 Table 46), Phase 3 + 4 command wire formats (§12.4–§12.6, §14.10/§14.11, §17.5/§17.6, §20.3/§20.4/§20.6/§20.7) |
 | [`tests/compliance/cross-check-report.md`](tests/compliance/cross-check-report.md) | Side-by-side comparison vs wolfTPM v4.0.0 PR #445 + V1.85 RC4 spec; runtime cross-validation snapshots; per-commit resolution log of every spec-conformance gap closed |
 | [`CHANGELOG.md`](CHANGELOG.md) | Phase-by-phase implementation history with spec section citations on every change |
 

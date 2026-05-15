@@ -6,6 +6,73 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+### V1.85 RC4 spec-citation audit — 26 wrong references fixed (2026-05-15)
+
+Surfaced by wolfTPM issue #506 (closed by Aidan Garske as not-a-bug). Our
+report cited Part 3 §29.2.1 for `TPM2_SignDigest` and asked for a missing
+`TPM2B_DIGEST_INFO` typedef. Both were wrong: §29.2.1 is `TPM2_ClockSet`,
+and `TPM2B_DIGEST_INFO` / `TPM2B_MU` do not exist in V1.85 RC4 (Aidan
+grepped Part 2 and got zero matches). A self-audit revealed the wrong
+citation had propagated into the entire PQC command surface and the
+"spec-authoritative" doc extract.
+
+**Pattern.** All wrong citations clustered in two failure modes: (1) PQC
+commands stamped as §29.x (the `TPM2_Clock*` chapter) because an early
+working-draft or LLM enrichment placed PQC in a non-existent §29 PQC
+chapter; (2) §18 command Tables in `TPMdocextract.md` cited Table numbers
+from the §17 Policy-command range — real Tables, wrong commands. No
+errors in foundational TPM2B / parameter-set / Part 2 structure citations,
+which were grepped against the PDF when first written.
+
+**Fixed citations (Part 3 V1.85 RC4):**
+
+| Command | Was | Is |
+| --- | --- | --- |
+| TPM2_Encapsulate | §29.5.1 | §14.10 (Tables 60-61) |
+| TPM2_Decapsulate | §29.5.2 | §14.11 (Tables 62-63) |
+| TPM2_SignSequenceStart | §29.3.1 | §17.5 |
+| TPM2_VerifySequenceStart | §29.4.1 | §17.6 |
+| TPM2_VerifySequenceComplete | §29.4.2 | §20.3 |
+| TPM2_VerifyDigestSignature | §29.2.2 | §20.4 |
+| TPM2_SignSequenceComplete | §29.3.2 | §20.6 |
+| TPM2_SignDigest | §29.2.1 | §20.7 (Table 126) |
+| TPM2_CreatePrimary | §29 / Tables 124-125 | §24.1 / Tables 191-192 |
+| TPM2_MakeCredential | §12.5.2 | §12.6.2 (Tables 28-29) |
+| TPM2_ActivateCredential | §12.6.2 | §12.5.2 (Tables 26-27) |
+| TPM2_FlushContext | Tables 139-140 | §28.4 / Tables 228-229 |
+| TPM2_EvictControl | Tables 141-142 | §28.5 / Tables 230-231 |
+| TPM2_NV_DefineSpace | §31.4 / Tables 162-163 | §31.3 / Tables 245-246 |
+| TPM2_NV_Write | §31.6 / Tables 166-167 | §31.7 / Tables 253-254 |
+| TPM2_NV_ReadPublic | §31.7 / Tables 168-169 | §31.6 / Tables 251-252 |
+| TPM2_NV_Read | Tables 178-179 | §31.13 / Tables 265-266 |
+| TPM2_ReadPublic (object) | Tables 84-85 | §12.4 / Tables 24-25 |
+
+**Files touched (12):** `CHANGELOG.md`, `README.md`, `docs/TPMdocextract.md`,
+`libtpms/src/tpm2/{SignDigest,VerifyDigestSignature,Encapsulate,Decapsulate}_fp.h`,
+`libtpms/src/tpm2/{PqcMlDsaCommands,PqcKemCommands}.c`,
+`swtpm/src/swtpm_setup/swtpm.c`, `tests/compliance/v185_compliance.sh`,
+`tests/crossval/src/test_pqc_phase3.c`. Companion fix in pqctoday-hub:
+`src/components/Playground/TpmPlayground/ComplianceRunner.tsx`.
+
+**Open issues surfaced during the audit** (flagged in memory, not fixed
+here — need separate review):
+
+1. `TPMdocextract.md §13.4` and the compliance suite describe
+   `TPM2_SignDigest` wire as `inScheme + digest + context + hint` but
+   Table 126 in RC4 has `context + digest + validation` (no `inScheme`,
+   no `hint`). Compliance suite may be testing against a pre-RC4 draft
+   wire format. 16/16 passing → needs reverification.
+2. `PqcMlDsaCommands.c:54-59` rejects restricted-key `SignDigest` outright
+   with `TPM_RC_ATTRIBUTES`. §20.7.1 says restricted keys are permitted
+   with a valid `TPMT_TK_HASHCHECK` (which for ML-DSA cannot exist).
+   Different mechanism, same de-facto outcome — conformance ambiguous.
+3. Two passages in `TPMdocextract.md §18.4.1` and §18.4 footer were
+   presented as verbatim spec quotes ("if adminWithPolicy is SET,
+   authPolicy shall NOT be EMPTY"; "restricted-AK Quote/Certify requires
+   allowExternalMu = NO") — neither has a verbatim match in V1.85 RC4.
+   Re-cited to the structural definitions and annotated as inference,
+   not quote.
+
 ## [0.7.0] — 2026-05-13
 
 ### WASM provisioning port — V2.7 EK + cert NV slots reachable in the browser
@@ -317,20 +384,38 @@ Full extracted spec text now in `docs/TPMdocextract.md` §15 (Tables 97-102,
 - `tests/compliance/run_attestation_xcheck.sh` — full setup + drive + summary wrapper.
 - `Makefile` — new `attestation-xcheck` target, depends on `docker-xcheck`.
 
-#### wolfTPM upstream V1.85 gaps surfaced
+#### wolfTPM upstream V1.85 gaps surfaced — **all five withdrawn 2026-05-15**
 
-Five real gaps found in `wolfSSL/wolfTPM` v4.0.0+PR#501 during this work (we
-work around all five in our test client; to be filed upstream separately):
-
-1. `TPMU_SIG_SCHEME` union missing `mldsa` + `hash_mldsa` arms (Part 2 §11.3.5 Table 216) — blocks explicit `inScheme.scheme = TPM_ALG_MLDSA`.
-2. `TPMS_SIG_SCHEME_MLDSA` + `TPMS_SIG_SCHEME_HASH_MLDSA` struct types missing.
-3. **`TPMT_TK_VERIFIED` defined as empty struct** (V1.85 §10.6.5 Table 112 mandates `{tag, hierarchy, [type]meta}`) — major: no client can inspect VerifySequenceComplete tickets.
-4. `TPMU_TK_VERIFIED_META` union missing entirely.
-5. `TPM2B_DIGEST_INFO` / external-µ TPM2B missing (Part 3 §29.2.1 SignDigest `allowExternalMu` mode).
-
-Our G8 test sends `inScheme=NULL` (spec-allowed) and relies on libtpms's
-dispatcher to derive the hash from `nameAlg` — fully spec-compliant
-workaround.
+> **Withdrawn 2026-05-15.** All five "gaps" originally listed here were spec
+> misreadings. wolfTPM is V1.85 RC4 conformant on each of these points. Three
+> tickets were filed (#504, #505, #506) on 2026-05-13; all three were closed
+> by Aidan Garske as not-bugs on 2026-05-14/15 with detailed corrections. The
+> remaining two items in the original list rest on the same misreadings and
+> were not filed.
+>
+> Root cause: this section was drafted from LLM-summarized spec extracts that
+> misnumbered tables/sections and invented typedefs absent from the spec,
+> without cross-checking against the correctly-transcribed Tables 110/112/181
+> in our own `docs/TPMdocextract.md` or against the vendor wolfTPM headers in
+> `vendor/wolftpm/wolftpm/tpm2.h`.
+>
+> Per-item correction:
+>
+> 1. ~~`TPMU_SIG_SCHEME` missing `mldsa` + `hash_mldsa` arms (Part 2 §11.3.5 Table 216).~~ **Wrong.** Table 216 is `TPM2B_SIGNATURE_MLDSA`. `TPMU_SIG_SCHEME` is Table 181 (§11.2.1.4 p.173) and the spec does **not** define `mldsa`/`hash_mldsa` arms — ML-DSA uses `TPM_ALG_NULL` as the scheme selector per Table 181's last row, because `TPMS_MLDSA_PARMS` fully fixes the operation. wolfTPM is conformant. Issue [#504](https://github.com/wolfSSL/wolfTPM/issues/504) closed as not-a-bug.
+> 2. ~~`TPMS_SIG_SCHEME_MLDSA` + `TPMS_SIG_SCHEME_HASH_MLDSA` struct types missing.~~ **Wrong.** These typedefs do not exist in V1.85 RC4 Part 2 (zero matches in the spec text). Follows from (1).
+> 3. ~~`TPMT_TK_VERIFIED` defined as empty struct.~~ **Wrong.** The struct in wolfTPM (both at PR #445 merge `fbbf6fe` and at PR #501 merge `0ae18dc`) has `{tag, hierarchy, [#ifdef WOLFTPM_V185 metaAlg], digest}` — never been empty. The original "current state" snippet in #505 was fabricated. Issue [#505](https://github.com/wolfSSL/wolfTPM/issues/505) closed as not-a-bug.
+> 4. ~~`TPMU_TK_VERIFIED_META` union missing entirely.~~ **Wrong.** Table 110 (§10.6.4 p.145) defines the union as `{verified:TPMS_EMPTY, messageVerified:TPMS_EMPTY, digestVerified:TPM_ALG_ID}` — only one of three arms carries any wire data. wolfTPM flattens this to a single `TPM_ALG_ID metaAlg` field, which is semantically faithful. The `digest`→`hmac` rename (Table 112) is editorial per the spec's own note; wolfTPM retains `digest` for API stability without affecting wire bytes.
+> 5. ~~`TPM2B_DIGEST_INFO` / external-µ TPM2B missing (Part 3 §29.2.1 SignDigest).~~ **Wrong.** `TPM2_SignDigest` is Part 3 §20.7 (§29.2.1 is `TPM2_ClockSet`). `TPM2B_DIGEST_INFO`/`TPM2B_MU` do not exist in the spec. External-µ rides in the existing `TPM2B_DIGEST digest` field per Table 126, gated by `TPMS_MLDSA_PARMS.allowExternalMu`. wolfTPM issue [#506](https://github.com/wolfSSL/wolfTPM/issues/506) closed as not-a-bug.
+>
+> The runtime V185-001..V185-018 compliance suite is **not affected** by this
+> withdrawal — it tests TPM behavior end-to-end (Encapsulate/Decapsulate
+> round-trip, signature non-trivial, capability-set membership) and does not
+> rely on the source-level claims above. The "16/16 passing" runtime status
+> stands.
+>
+> Our G8 test continues to send `inScheme=NULL` (spec-allowed; Table 181 last
+> row) and relies on libtpms's dispatcher to derive the hash from `nameAlg` —
+> this is the spec-defined ML-DSA path, not a workaround.
 
 ## [0.3.1] — 2026-05-13
 
@@ -794,7 +879,7 @@ $ openssl x509 -in <dir>/mlkem_ek.cert -inform DER -text -noout | grep -E "Algor
 
 **`libtpms/src/tpm2/PqcMlDsaCommands.c` — restriction enforcement fix**
 
-- `TPM2_SignDigest`: added check `IS_ATTRIBUTE(…, TPMA_OBJECT, restricted)` before `CryptSelectSignScheme` — restricted signing keys must be rejected with `TPM_RC_ATTRIBUTES` because `TPM2_SignDigest` accepts arbitrary pre-hashed data without a hashcheck ticket (V1.85 §29.2.1; Part 1 §22.1.2)
+- `TPM2_SignDigest`: added check `IS_ATTRIBUTE(…, TPMA_OBJECT, restricted)` before `CryptSelectSignScheme` — restricted signing keys must be rejected with `TPM_RC_ATTRIBUTES` because `TPM2_SignDigest` accepts arbitrary pre-hashed data without a hashcheck ticket (V1.85 Part 3 §20.7; Part 1 §22.1.2)
 
 **`tests/crossval/src/test_pqc_phase3.c`** (new)
 
@@ -819,7 +904,7 @@ $ openssl x509 -in <dir>/mlkem_ek.cert -inform DER -text -noout | grep -E "Algor
 
 **`docs/TPMdocextract.md`**
 
-- Added Section 13 with spec-authoritative wire formats for `TPM2_ReadPublic` (§12.4.2), `TPM2_MakeCredential` (§12.5.2), `TPM2_ActivateCredential` (§12.6.2), `TPM2_SignDigest` (§29.2.1) — including the restriction rule and TPMT_SIG_SCHEME NULL encoding notes
+- Added Section 13 with spec-authoritative wire formats for `TPM2_ReadPublic` (§12.4.2), `TPM2_MakeCredential` (§12.5.2), `TPM2_ActivateCredential` (§12.6.2), `TPM2_SignDigest` (§20.7) — including the restriction rule and TPMT_SIG_SCHEME NULL encoding notes
 
 ### Phase 3 — PQC Key Hierarchy (Implementation)
 

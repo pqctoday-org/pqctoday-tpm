@@ -1,6 +1,6 @@
 /********************************************************************************/
 /*                                                                              */
-/*  TPM2_SignDigest — V1.85 ML-DSA / HashML-DSA sign over digest (§29.2.1)   */
+/*  TPM2_SignDigest — V1.85 ML-DSA / HashML-DSA sign over digest (Part 3 §20.7) */
 /*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */

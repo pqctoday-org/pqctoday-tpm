@@ -6,7 +6,7 @@
  *   2. TPM2_CreatePrimary(ML-DSA-65 restricted+sign) in Owner hierarchy → pk = 1952 B
  *   3. TPM2_ReadPublic + TPM2_MakeCredential + TPM2_ActivateCredential roundtrip
  *      via ML-KEM-768 transport (CryptSecretEncrypt / CryptSecretDecrypt path)
- *   4. TPM2_SignDigest with restricted ML-DSA AK → TPM_RC_ATTRIBUTES (V1.85 §29.2.1
+ *   4. TPM2_SignDigest with restricted ML-DSA AK → TPM_RC_ATTRIBUTES (V1.85 Part 3 §20.7
  *      restriction: arbitrary-digest signing is not allowed on restricted keys)
  *   5. TPM2_CreatePrimary(ML-DSA-65 unrestricted) + TPM2_SignDigest → success;
  *      verify sigAlg = MLDSA, sig size = 3309 B (FIPS 204 ML-DSA-65 signature size)
@@ -16,7 +16,7 @@
  *   ML-DSA-65 public key  size 1952 B: Part 2 §11.2.7 Table 207
  *   ML-DSA-65 signature   size 3309 B: Part 2 §11.2.7 Table 207
  *   MakeCredential / ActivateCredential: Part 3 §12.5-§12.6
- *   TPM2_SignDigest restriction: Part 3 §29.2.1; Part 1 §22.1.2
+ *   TPM2_SignDigest restriction: Part 3 §20.7; Part 1 §22.1.2
  *
  * Copyright 2026 PQC Today. BSD-3-Clause.
  */
@@ -40,7 +40,7 @@
 #define TPM_CC_ReadPublic         0x00000173u
 #define TPM_CC_MakeCredential     0x00000168u  /* Part 2 Table 11 */
 #define TPM_CC_ActivateCredential 0x00000147u
-#define TPM_CC_SignDigest         0x000001A6u  /* V1.85 §29.2.1 */
+#define TPM_CC_SignDigest         0x000001A6u  /* V1.85 Part 3 §20.7 */
 #define TPM_CC_SignSequenceStart    0x000001AAu  /* V1.85 §17.5 */
 #define TPM_CC_SignSequenceComplete 0x000001A4u  /* V1.85 §20.6 */
 #define TPM_CC_VerifySequenceStart  0x000001A9u  /* V1.85 §17.6 */
@@ -479,7 +479,7 @@ int main(void)
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
      * Test 4 — SignDigest with restricted ML-DSA AK → TPM_RC_ATTRIBUTES
      *
-     * V1.85 §29.2.1: TPM2_SignDigest accepts an arbitrary pre-hashed digest
+     * V1.85 Part 3 §20.7: TPM2_SignDigest accepts an arbitrary pre-hashed digest
      * without a hashcheck ticket.  Allowing restricted signing keys here would
      * bypass the restriction property (only TPM-attested hashes may be signed).
      * Expect error class: RC_FMT1 | ATTRIBUTES = 0x082 (handle-1 subject).
