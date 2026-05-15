@@ -1381,29 +1381,39 @@ Mirrors `tests/compliance/clients/pqc_attestation_xcheck.c create_restricted_ak(
 ```
 
 NOT set: `adminWithPolicy` (bit 7, 0x80). The native `swtpm_setup`
-template uses `0x000500F2` which sets `adminWithPolicy` SET but has
-EMPTY `authPolicy` — that combination conflicts with the `adminWithPolicy`
-attribute semantics in Part 2 §8.3.3.7 (TPMA_OBJECT bit 7) + Part 1 §22.2.5
-(adminWithPolicy: "authorization for an action requiring the ADMIN role
-requires that the authPolicy of the object be satisfied"). *Note: the
-verbatim phrasing "if adminWithPolicy is SET, authPolicy shall NOT be EMPTY"
-is an inference from these sections, not a direct spec quote — flag for
-re-derivation if the constraint is enforced anywhere else.* The WASM
-port intentionally drops `adminWithPolicy` to keep the AK template
-spec-compliant. The native compliance suites accidentally avoid the
-violation because they create fresh per-test AKs rather than using the
-swtpm_setup persistent ones.
+template uses `0x000500F2` which sets `adminWithPolicy` SET while leaving
+`authPolicy` EMPTY. **This combination makes ADMIN-role authorization
+functionally impossible** but is not an explicit spec violation:
 
-Also NOT set in the WASM template (parms `allowExternalMu = 0x00`):
-restricted-AK Quote/Certify requires `allowExternalMu = NO` per Part 1
-§22.1.2 (Restricted Attribute) + Part 2 §12.2.3.6 Table 229
-(TPMS_MLDSA_PARMS.allowExternalMu) + Part 1 §46.3 (ML-DSA Cryptographic
-Primitives — describes when `allowExternalMu = TRUE` enables SignDigest).
-*Note: the "restricted-AK Quote/Certify requires allowExternalMu = NO"
-rule is an inference from these sections, not a direct spec quote — flag
-for re-derivation if the constraint is enforced anywhere else.*
-The native swtpm_setup uses `YES` to permit
-SignDigest paths — works for SignDigest but trips on Quote
-(reproducible in `make wasm-test` after the v0.7.x port).
+- Part 1 §22.2.5: "adminWithPolicy ... indicates that authorization for
+  an action requiring the ADMIN role requires that the `authPolicy` of
+  the object be satisfied."
+- Part 1 §10.2 Table 8 (and surrounding narrative, p.75): "An
+  `authPolicy` will have to match the value of a digest (policyDigest)
+  in order for it to be a valid authorization. Since no digest has a
+  zero length, setting the `authPolicy` to an Empty Buffer will disable
+  use of the `authPolicy`."
+
+Together those two passages mean: if `adminWithPolicy = SET` and
+`authPolicy = Empty`, then ADMIN-role actions require a policy match,
+but no policy session can match the Empty buffer, so ADMIN-role actions
+are unauthorizable. The spec does not explicitly forbid the combination
+(verified 2026-05-15 by grepping all four V1.85 RC4 PDFs — no "shall NOT
+be EMPTY" or equivalent phrasing exists for this case). The WASM port
+intentionally drops `adminWithPolicy` so ADMIN-role flows on the AK
+remain usable.
+
+Also NOT set in the WASM template (parms `allowExternalMu = NO`):
+**this is an implementation choice, not a spec requirement.** Verified
+2026-05-15 by grepping all four V1.85 RC4 PDFs — there is no rule
+linking restricted attribute, Quote, Certify, and `allowExternalMu`.
+Per Part 2 §12.2.3.6 Table 229, `allowExternalMu` ONLY affects
+`TPM2_SignDigest()` and `TPM2_VerifyDigestSignature()`; ML-DSA Quote
+and Certify travel through the SignSequence path which Table 229
+explicitly notes "ML-DSA keys can always be used with." The WASM AK
+sets `allowExternalMu = NO` because the AK is attestation-only — there
+is no use case for SignDigest against it — and minimising the attack
+surface is preferred. Native `swtpm_setup` uses `YES` to enable
+SignDigest flows on the same key, which is also spec-conformant.
 
 ---
