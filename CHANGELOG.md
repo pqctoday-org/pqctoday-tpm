@@ -131,6 +131,59 @@ here — need separate review):
    Re-cited to the structural definitions and annotated as inference,
    not quote.
 
+### CI infra — xcheck scripts auto-detect sudo (2026-05-15)
+
+The four cross-check orchestrator scripts under `tests/compliance/`
+called `make install` and `ldconfig` without `sudo`. This worked inside
+the Docker xcheck image (root user) but failed on the GH Actions runner
+("libtpms install failed") — which is why `xcheck.yml` had been red for
+13 consecutive days (2026-05-03 → 2026-05-15) despite the cross-check
+itself passing locally.
+
+Fix: each script now sets `SUDO="sudo"` when not running as root and
+prefixes `make install` / `ldconfig` with `$SUDO`. Same pattern, same
+effect, in all four scripts:
+
+- `run_wolftpm_runtime_xcheck.sh` (in CI — committed in `e4f83a61`)
+- `run_attestation_xcheck.sh` (in CI)
+- `run_ek_conformance_xcheck.sh`
+- `run_ek_cert_conformance_xcheck.sh`
+
+The runtime cross-check itself was never broken — only its CI plumbing.
+Last green local run was 2026-05-02 (captured in
+`tests/compliance/cross-check-report.md`): full ML-KEM-{512,768,1024}
+encap/decap round-trip and ML-DSA-{44,65,87} sign/verify round-trip
+producing `TPM_ST_MESSAGE_VERIFIED` tickets per V1.85 §20.3 Table 119,
+two independent crypto stacks (wolfCrypt vs OpenSSL 3.6.2 EVP) agreeing
+on every byte.
+
+### Process — withdrew five wolfTPM "gaps" filed on misread spec (2026-05-15)
+
+The `wolfTPM upstream V1.85 gaps surfaced` block previously under v0.4.0
+listed five "real gaps" found in wolfSSL/wolfTPM. Three were filed
+(#504, #505, #506); all three were closed by Aidan Garske as not-bugs
+on 2026-05-14/15. The two unfiled items had the same defect. All five
+have been retracted in-place in v0.4.0 with per-item corrections.
+
+Root cause: the draft used LLM-summarized spec extracts that
+misnumbered tables/sections and invented typedefs absent from the spec
+(e.g. `TPMU_SIG_SCHEME` cited as Table 216 when it's actually
+Table 181; `TPMT_TK_VERIFIED` described as an empty struct when it has
+always carried `{tag, hierarchy, [V185 metaAlg], digest}`;
+`TPM2_SignDigest` cited as §29.2.1 when it's §20.7; `TPM2B_DIGEST_INFO`
+typedef cited as missing when it doesn't exist in V1.85 RC4 at all).
+Our own correctly-transcribed `docs/TPMdocextract.md` was not consulted
+before filing.
+
+**Process rule going forward:** No upstream issue alleging a missing
+structure, wrong field, or incomplete implementation may be filed
+without (a) PDF grep against `docs/standards/` confirming the exact
+table/section number, (b) reading the vendor source at
+`vendor/wolftpm/wolftpm/tpm2.h` as-is, (c) cross-check against
+`docs/TPMdocextract.md`. The validating runtime cross-check that would
+have caught all five claims end-to-end was sitting green locally but
+red in CI (sudo bug above) — nobody checked.
+
 ## [0.7.0] — 2026-05-13
 
 ### WASM provisioning port — V2.7 EK + cert NV slots reachable in the browser

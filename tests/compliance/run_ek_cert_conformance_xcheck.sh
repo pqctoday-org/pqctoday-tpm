@@ -24,14 +24,19 @@ PASS=0
 FAIL=0
 
 WORKSPACE="${WORKSPACE:-/workspace}"
+
+# Auto-detect sudo need: Docker container runs as root, GH Actions runner does not.
+SUDO=""
+[ "$(id -u)" -ne 0 ] && SUDO="sudo"
+
 cd "$WORKSPACE"
 
 # ── Install libtpms + swtpm ──────────────────────────────────────────────────
 section "Setup — install pqctoday-tpm libtpms + swtpm"
-( cd libtpms && make install >/dev/null 2>&1 && ldconfig ) \
+( cd libtpms && $SUDO make install >/dev/null 2>&1 && $SUDO ldconfig ) \
     && pass "libtpms installed and ldconfig'd" \
     || { fail "libtpms install failed"; exit 1; }
-( cd swtpm && make install >/dev/null 2>&1 ) \
+( cd swtpm && $SUDO make install >/dev/null 2>&1 ) \
     && pass "swtpm installed" \
     || { fail "swtpm install failed"; exit 1; }
 
