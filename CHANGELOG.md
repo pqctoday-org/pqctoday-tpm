@@ -6,6 +6,22 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-05-15
+
+**Breaking.** `TPM2_SignDigest` and `TPM2_VerifyDigestSignature` wire formats
+migrated to the finalized V1.85 RC4 Tables 126 / 120 (`{keyHandle, context,
+digest, validation/signature}`). Clients built against the pre-RC4 working
+draft (`{inScheme, digest, context, hint}`) will no longer interop on these
+two commands — rebuild against wolfTPM PR #445 (with `--enable-pqc`, behind
+`#ifdef WOLFTPM_V185`) or equivalent. ML-KEM Encap/Decap, sequence-based
+ML-DSA signing, Quote/Certify, and V2.7 EK cert paths are unaffected.
+
+Also lands: full V1.85 RC4 spec-citation audit (26 wrong references fixed
+across code, tests, and the "spec-authoritative" doc extract), CI sudo-fix
+that unblocks the daily xcheck.yml workflow, and a process rule preventing
+LLM-summarized spec extracts from being filed upstream without PDF
+verification.
+
 ### V1.85 RC4 SignDigest + VerifyDigestSignature wire-format migration (2026-05-15)
 
 Migrated `TPM2_SignDigest` (CC 0x1A6) and `TPM2_VerifyDigestSignature`
