@@ -11,19 +11,23 @@
 
 #if ALG_MLDSA || ALG_HASH_MLDSA
 
+/* V1.85 RC4 Part 3 §20.7.2 Table 126 wire order:
+ *   { @keyHandle, TPM2B_SIGNATURE_CTX context, TPM2B_DIGEST digest,
+ *     TPMT_TK_HASHCHECK validation }
+ * Struct field order MUST match the wire order so dispatcher paramOffsets
+ * align with `types[]` in CommandDispatchData.h. */
 typedef struct {
-    TPMI_DH_OBJECT       keyHandle;  /* IN  H1: loaded ML-DSA signing key          */
-    TPMT_SIG_SCHEME      inScheme;   /* IN  P1: signing scheme (TPM_ALG_NULL→key default) */
-    TPM2B_DIGEST         digest;     /* IN  P2: pre-computed message digest          */
-    TPM2B_SIGNATURE_CTX  context;    /* IN  P3: domain-separation context (may be empty) */
-    TPM2B_SIGNATURE_HINT hint;       /* IN  P4: determinism hint (may be empty)      */
+    TPMI_DH_OBJECT       keyHandle;   /* IN  H1: loaded ML-DSA signing key          */
+    TPM2B_SIGNATURE_CTX  context;     /* IN  P1: domain-separation context          */
+    TPM2B_DIGEST         digest;      /* IN  P2: pre-computed message digest        */
+    TPMT_TK_HASHCHECK    validation;  /* IN  P3: hashcheck ticket (NULL ok for      */
+                                      /*        non-restricted keys per §20.7.1)    */
 } SignDigest_In;
 
-#define RC_SignDigest_keyHandle  (TPM_RC_H + TPM_RC_1)
-#define RC_SignDigest_inScheme   (TPM_RC_P + TPM_RC_1)
-#define RC_SignDigest_digest     (TPM_RC_P + TPM_RC_2)
-#define RC_SignDigest_context    (TPM_RC_P + TPM_RC_3)
-#define RC_SignDigest_hint       (TPM_RC_P + TPM_RC_4)
+#define RC_SignDigest_keyHandle   (TPM_RC_H + TPM_RC_1)
+#define RC_SignDigest_context     (TPM_RC_P + TPM_RC_1)
+#define RC_SignDigest_digest      (TPM_RC_P + TPM_RC_2)
+#define RC_SignDigest_validation  (TPM_RC_P + TPM_RC_3)
 
 typedef struct {
     TPMT_SIGNATURE  signature;  /* OUT: ML-DSA / HashML-DSA signature */

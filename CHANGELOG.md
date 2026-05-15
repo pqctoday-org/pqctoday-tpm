@@ -6,6 +6,64 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+### V1.85 RC4 SignDigest + VerifyDigestSignature wire-format migration (2026-05-15)
+
+Migrated `TPM2_SignDigest` (CC 0x1A6) and `TPM2_VerifyDigestSignature`
+(CC 0x1A5) wire shapes from the pre-RC4 working-draft layout to the
+finalized V1.85 RC4 spec. Surfaced by an end-to-end audit run during
+which `wolfTPM`'s `examples/pqc/pqc_mssim_e2e` (which exercises
+`wolfTPM2_SignDigest`) returned `rc=466` (= 0x1d2 = `TPM_RC_SCHEME` on
+P1) against our libtpms — proof that our wire shape diverged from the
+V1.85 RC4 spec Table 126.
+
+**Old shape (pre-RC4 draft, 5 fields):**
+
+```text
+SignDigest_In = {keyHandle, inScheme(TPMT_SIG_SCHEME), digest, context, hint}
+VerifyDigestSignature_In = {keyHandle, digest, signature, context}
+```
+
+**New shape (V1.85 RC4 Table 126 / Table 120):**
+
+```text
+SignDigest_In = {keyHandle, context, digest, validation(TPMT_TK_HASHCHECK)}
+VerifyDigestSignature_In = {keyHandle, context, digest, signature}
+```
+
+**Files touched:**
+
+- `libtpms/src/tpm2/SignDigest_fp.h` — struct flipped to 4 fields; macros
+  renamed (`RC_SignDigest_inScheme/hint` → `RC_SignDigest_context/validation`).
+- `libtpms/src/tpm2/VerifyDigestSignature_fp.h` — fields reordered to spec.
+- `libtpms/src/tpm2/CommandDispatchData.h` — both descriptor entries updated:
+  `paramOffsets[]` + `types[]` align with spec wire order.
+- `libtpms/src/tpm2/PqcMlDsaCommands.c` — handler refactored: removed
+  `inScheme`/`hint` references; added §20.7.1 ticket-based rejection
+  for restricted keys (`hierarchy == TPM_RH_NULL` ⇒ `TPM_RC_TICKET`).
+- `tests/crossval/src/test_pqc_phase3.c` — Tests 4/5/6 rebuilt against
+  the new wire; Test 4 assertion updated from `TPM_RC_ATTRIBUTES` to
+  `TPM_RC_TICKET`; Test 11 added as permanent V1.85 RC4 conformance gate.
+- `tests/compliance/run_wolftpm_runtime_xcheck.sh` — Step 6 added that
+  runs `wolfTPM/examples/pqc/pqc_mssim_e2e` against our libtpms+swtpm
+  as a permanent V1.85 RC4 SignDigest/VerifyDigestSignature interop gate.
+- `docs/TPMdocextract.md §13.4` — wire-format description rewritten with
+  RC4 shape + restriction-rule note + migration history.
+
+**Validation evidence:**
+
+| Suite | Before migration | After migration |
+| --- | --- | --- |
+| `v185_compliance.sh` (source-level) | 106 PASS / 0 FAIL | 106 PASS / 0 FAIL |
+| `test_pqc_phase3` (in-process crossval) | 20 PASS / 0 FAIL | 21 PASS / 0 FAIL (Test 11 added) |
+| `run_wolftpm_runtime_xcheck.sh` | 29 PASS / 0 FAIL | 30 PASS / 0 FAIL (Step 6 added) |
+| `run_attestation_xcheck.sh` | 12 PASS / 0 FAIL | 12 PASS / 0 FAIL |
+| `wolfTPM/examples/pqc/pqc_mssim_e2e` | `SignDigest rc=466`, EXIT=1 | All round-trips pass, EXIT=0 |
+
+The migration is wire-compatible with wolfTPM PR #445 (commit `fbbf6fe`,
+behind `#ifdef WOLFTPM_V185`) — the authoritative V1.85 RC4 PQC client
+implementation. Cross-reference: `vendor/wolftpm/src/tpm2.c:3540-3650`,
+with author comments citing Tables 126/120.
+
 ### V1.85 RC4 spec-citation audit — 26 wrong references fixed (2026-05-15)
 
 Surfaced by wolfTPM issue #506 (closed by Aidan Garske as not-a-bug). Our

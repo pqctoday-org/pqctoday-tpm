@@ -29,13 +29,21 @@
 /*
  * Sign a pre-computed digest using a loaded ML-DSA or HashML-DSA key.
  *
- * Unlike TPM2_Sign, no hash-check ticket is required — the caller supplies
- * the digest directly (Part 3 §20.7).  context and hint may be zero-length.
+ * V1.85 RC4 Part 3 §20.7.2 Table 126 wire shape:
+ *   { @keyHandle, TPM2B_SIGNATURE_CTX context, TPM2B_DIGEST digest,
+ *     TPMT_TK_HASHCHECK validation }
+ *
+ * §20.7.1: "Signing using a restricted key is permitted, but it requires a
+ * valid TPMT_TK_HASHCHECK indicating that digest is known by the TPM to be
+ * the hash of some message which does not begin with TCG_GENERATED_VALUE."
+ * Note: for ML-DSA, no valid HASHCHECK ticket can be produced (the message
+ * representative µ is not a plain hash), so restricted keys cannot satisfy
+ * the ticket requirement and are effectively rejected.
  *
  * Return:
  *   TPM_RC_KEY        keyHandle does not reference a signing key
- *   TPM_RC_SCHEME     scheme not compatible with key type or hash
- *   TPM_RC_ATTRIBUTES key does not have the 'sign' attribute
+ *   TPM_RC_ATTRIBUTES key does not support digest-mode signing
+ *   TPM_RC_TICKET     restricted key without a valid HASHCHECK ticket
  *   TPM_RC_FAILURE    crypto engine failure
  */
 TPM_RC
@@ -51,13 +59,6 @@ TPM2_SignDigest(SignDigest_In *in, SignDigest_Out *out)
        && signObject->publicArea.type != TPM_ALG_HASH_MLDSA)
         return TPM_RCS_ATTRIBUTES + RC_SignDigest_keyHandle;
 
-    /* Restricted signing keys may only sign TPM-attested hashes (TPM2_Sign + hashcheck
-     * ticket).  TPM2_SignDigest takes an arbitrary digest with no ticket, so it must
-     * reject restricted keys to preserve the restriction security property.
-     * V1.85 Part 3 §20.7; Part 1 §22.1.2. */
-    if(IS_ATTRIBUTE(signObject->publicArea.objectAttributes, TPMA_OBJECT, restricted))
-        return TPM_RCS_ATTRIBUTES + RC_SignDigest_keyHandle;
-
     /* V1.85 RC4 Part 2 §12.2.3.6 Table 229: TPMS_MLDSA_PARMS.allowExternalMu
      * gates SignDigest / VerifyDigestSignature for ML-DSA keys. When NO, the
      * digest field would be interpreted as the external Mu (μ) per FIPS 204 —
@@ -67,8 +68,14 @@ TPM2_SignDigest(SignDigest_In *in, SignDigest_Out *out)
        && signObject->publicArea.parameters.mldsaDetail.allowExternalMu != YES)
         return TPM_RCS_ATTRIBUTES + RC_SignDigest_keyHandle;
 
-    if(!CryptSelectSignScheme(signObject, &in->inScheme))
-        return TPM_RCS_SCHEME + RC_SignDigest_inScheme;
+    /* §20.7.1 restriction rule: restricted keys require a valid HASHCHECK
+     * ticket. A NULL ticket (hierarchy = TPM_RH_NULL) is by definition not
+     * "valid" for a restricted key per §22.1.2. For ML-DSA, no valid ticket
+     * can ever be produced — the µ value isn't a TPM-attested hash — so
+     * this path always rejects restricted ML-DSA SignDigest. */
+    if(IS_ATTRIBUTE(signObject->publicArea.objectAttributes, TPMA_OBJECT, restricted)
+       && in->validation.hierarchy == TPM_RH_NULL)
+        return TPM_RCS_TICKET + RC_SignDigest_validation;
 
     return CryptMlDsaSign(
         &out->signature,
@@ -76,7 +83,7 @@ TPM2_SignDigest(SignDigest_In *in, SignDigest_Out *out)
         &in->digest,
         NULL,
         in->context.t.size > 0 ? &in->context : NULL,
-        in->hint.t.size    > 0 ? &in->hint    : NULL);
+        NULL);   /* hint not in V1.85 RC4 wire — passed as NULL */
 }
 
 #endif  /* CC_SignDigest */

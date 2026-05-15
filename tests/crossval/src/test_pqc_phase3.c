@@ -477,12 +477,15 @@ int main(void)
     }
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-     * Test 4 — SignDigest with restricted ML-DSA AK → TPM_RC_ATTRIBUTES
+     * Test 4 — V1.85 RC4 SignDigest with restricted ML-DSA AK + NULL ticket
      *
-     * V1.85 Part 3 §20.7: TPM2_SignDigest accepts an arbitrary pre-hashed digest
-     * without a hashcheck ticket.  Allowing restricted signing keys here would
-     * bypass the restriction property (only TPM-attested hashes may be signed).
-     * Expect error class: RC_FMT1 | ATTRIBUTES = 0x082 (handle-1 subject).
+     * Per §20.7.1: "Signing using a restricted key is permitted, but it
+     * requires a valid TPMT_TK_HASHCHECK". A NULL ticket (hierarchy=NULL)
+     * is by definition not "valid" for a restricted key per §22.1.2. For
+     * ML-DSA, no valid HASHCHECK ticket can ever be produced.
+     * Expected: TPM_RC_TICKET on parameter 3.
+     *
+     * Wire shape per Table 126: {keyHandle, context, digest, validation}
      * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
     {
         static const uint8_t digest[32] = {
@@ -496,32 +499,33 @@ int main(void)
         p = put_u32(p, 0);
         p = put_u32(p, TPM_CC_SignDigest);
         p = put_u32(p, akHandle);               /* H1: restricted ML-DSA AK */
-        /* authArea: 1 password session (9 bytes) */
         p = put_u32(p, 9);
         p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
-        /* P1: inScheme = TPM_ALG_NULL (2 bytes; TPMS_EMPTY details for NULL) */
-        p = put_u16(p, (uint16_t)TPM_ALG_NULL);
-        /* P2: digest (TPM2B_DIGEST: 32 bytes) */
+        /* P1: TPM2B_SIGNATURE_CTX context (empty) */
+        p = put_u16(p, 0);
+        /* P2: TPM2B_DIGEST digest (32 B) */
         p = put_u16(p, 32); memcpy(p, digest, 32); p += 32;
-        /* P3: context (empty) */
-        p = put_u16(p, 0);
-        /* P4: hint (empty) */
-        p = put_u16(p, 0);
+        /* P3: TPMT_TK_HASHCHECK validation = NULL ticket */
+        p = put_u16(p, 0x8024u);                /* tag = TPM_ST_HASHCHECK */
+        p = put_u32(p, 0x40000007u);            /* hierarchy = TPM_RH_NULL */
+        p = put_u16(p, 0);                      /* digest.size = 0 */
         uint32_t len = (uint32_t)(p - cmd);
         put_u32(cmd + 2, len);
         resp_len = sizeof(resp);
         send_command(cmd, len, resp, &resp_len);
         uint32_t rc = response_rc(resp, resp_len);
         if (rc == 0) {
-            FAIL("SignDigest(restricted AK): expected TPM_RC_ATTRIBUTES, got TPM_RC_SUCCESS");
+            FAIL("SignDigest(restricted AK): expected TPM_RC_TICKET, got TPM_RC_SUCCESS");
             goto done;
         }
-        /* Check error class: bits 7:0 must be RC_FMT1 | ATTRIBUTES = 0x082 */
-        if ((rc & 0x0ffu) != RC_ATTRIBUTES) {
-            FAIL("SignDigest(restricted AK): expected ATTRIBUTES error (0x082), got rc=0x%08x", rc);
+        /* Expect TPM_RC_TICKET (FMT1 + 0x20) on parameter 3.
+         * Full encoding: FMT1(0x80) | RC_P(0x40) | TICKET(0x20) | (3<<8) = 0x3e0.
+         * Match TICKET error code ignoring P/index bits via (rc & 0xbf) == 0xa0. */
+        if ((rc & 0xbfu) != 0xa0u) {
+            FAIL("SignDigest(restricted AK): expected TPM_RC_TICKET (FMT1+0x20), got rc=0x%08x", rc);
             goto done;
         }
-        PASS("SignDigest(restricted ML-DSA AK) → ATTRIBUTES (0x%08x) — restriction enforced", rc);
+        PASS("SignDigest(restricted ML-DSA AK + NULL ticket) → TPM_RC_TICKET (0x%08x) — §20.7.1 ticket gate", rc);
     }
 
     /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -547,7 +551,7 @@ int main(void)
             PASS("CreatePrimary(ML-DSA-65 unrestricted): handle=0x%08x", dsaHandle);
         }
 
-        /* 5b: SignDigest with the unrestricted key */
+        /* 5b: SignDigest with the unrestricted key — V1.85 RC4 Table 126 wire */
         static const uint8_t digest[32] = {
             0xCA,0xFE,0xBA,0xBE, 0xCA,0xFE,0xBA,0xBE,
             0xCA,0xFE,0xBA,0xBE, 0xCA,0xFE,0xBA,0xBE,
@@ -562,10 +566,14 @@ int main(void)
             p = put_u32(p, dsaHandle);
             p = put_u32(p, 9);
             p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
-            p = put_u16(p, (uint16_t)TPM_ALG_NULL);   /* NULL → key default (ML-DSA) */
+            /* P1: context (empty) */
+            p = put_u16(p, 0);
+            /* P2: digest (32 B) */
             p = put_u16(p, 32); memcpy(p, digest, 32); p += 32;
-            p = put_u16(p, 0);   /* context: empty */
-            p = put_u16(p, 0);   /* hint: empty */
+            /* P3: validation = NULL HASHCHECK ticket (unrestricted key permits NULL) */
+            p = put_u16(p, 0x8024u);          /* TPM_ST_HASHCHECK */
+            p = put_u32(p, 0x40000007u);      /* TPM_RH_NULL */
+            p = put_u16(p, 0);                /* digest.size = 0 */
             uint32_t len = (uint32_t)(p - cmd);
             put_u32(cmd + 2, len);
             resp_len = sizeof(resp);
@@ -635,7 +643,8 @@ int main(void)
         }
         uint32_t noMuHandle = get_u32(resp + 10);
 
-        /* Now try TPM2_SignDigest — must fail with TPM_RC_ATTRIBUTES */
+        /* Now try TPM2_SignDigest — V1.85 RC4 Table 126 wire shape.
+         * Must fail with TPM_RC_ATTRIBUTES because allowExternalMu=NO. */
         static const uint8_t digest[32] = {
             0xDE,0xAD,0xBE,0xEF, 0xDE,0xAD,0xBE,0xEF,
             0xDE,0xAD,0xBE,0xEF, 0xDE,0xAD,0xBE,0xEF,
@@ -649,9 +658,14 @@ int main(void)
         p = put_u32(p, noMuHandle);
         p = put_u32(p, 9);
         p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
-        p = put_u16(p, (uint16_t)TPM_ALG_NULL);
+        /* P1: context (empty) */
+        p = put_u16(p, 0);
+        /* P2: digest (32 B) */
         p = put_u16(p, 32); memcpy(p, digest, 32); p += 32;
-        p = put_u16(p, 0); p = put_u16(p, 0);
+        /* P3: validation = NULL ticket */
+        p = put_u16(p, 0x8024u);
+        p = put_u32(p, 0x40000007u);
+        p = put_u16(p, 0);
         uint32_t len = (uint32_t)(p - cmd);
         put_u32(cmd + 2, len);
         resp_len = sizeof(resp);
@@ -1104,6 +1118,110 @@ int main(void)
             if (sigAlg != TPM_ALG_MLDSA) { FAIL("Test 10: Expected ML-DSA sigAlg, got %04x", sigAlg); goto done; }
         }
         PASS("Test 10: Certify with ML-DSA AK produced valid signature");
+    }
+
+    /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     * Test 11 — RC4-WIRE CONFORMANCE: send V1.85 RC4 Table 126 spec-compliant
+     *           TPM2_SignDigest buffer and assert SUCCESS.
+     *
+     * This test pins the wire-format migration (2026-05-15). Prior to the
+     * migration, libtpms expected a 5-field legacy {inScheme, digest, context,
+     * hint} shape and rejected the spec wire with TPM_RC_SCHEME (rc=0x1d2).
+     * After migration to RC4 Table 126 {context, digest, validation}, this
+     * test MUST succeed.
+     *
+     * If this test fails with TPM_RC_SCHEME (0x1d2) → migration regressed.
+     * If this test fails with TPM_RC_TICKET (0xXX...a0) → restricted-key
+     *   guard mis-applied to the unrestricted probeKey.
+     * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+    {
+        /* Flush prior handles to free slots. */
+        for (uint32_t h = 0x80000000u; h <= 0x80000005u; h++) {
+            uint8_t cmd[14]; uint8_t *p = cmd;
+            p = put_u16(p, (uint16_t)TPM_ST_NO_SESSIONS);
+            p = put_u32(p, 14);
+            p = put_u32(p, 0x00000165u);   /* TPM_CC_FlushContext */
+            p = put_u32(p, h);
+            resp_len = sizeof(resp);
+            send_command(cmd, 14, resp, &resp_len);
+        }
+
+        /* Create unrestricted ML-DSA-65 with allowExternalMu=YES — required to
+         * even reach SignDigest's handler (allowExternalMu gate). */
+        uint32_t probeKey;
+        {
+            uint32_t attrs = TPMA_FIXEDTPM | TPMA_FIXEDPARENT | TPMA_SENSITIVEDATA
+                           | TPMA_USERWITHAUTH | TPMA_SIGN;
+            uint32_t rc = do_create_primary_ext(TPM_RH_OWNER, (uint16_t)TPM_ALG_MLDSA,
+                                                (uint16_t)TPM_MLDSA_65, attrs,
+                                                TPM_YES,   /* allowExternalMu = YES */
+                                                resp, sizeof(resp));
+            if (rc != 0) {
+                FAIL("Test 11 RC4-wire: CreatePrimary(allowExternalMu=YES) rc=0x%08x", rc);
+                goto done;
+            }
+            probeKey = get_u32(resp + 10);
+        }
+
+        /* Build a V1.85 RC4 Table 126 spec-compliant TPM2_SignDigest buffer:
+         *
+         *   tag(2)=TPM_ST_SESSIONS
+         *   commandSize(4)
+         *   commandCode(4)=TPM_CC_SignDigest
+         *   keyHandle(4)=probeKey
+         *   authArea_size(4)=9
+         *   session(9)=TPM_RS_PW + nonce.size=0 + sessionAttrs=0 + hmac.size=0
+         *   --- Parameters per Table 126 ---
+         *   P1: TPM2B_SIGNATURE_CTX context = { size(2)=0 }
+         *   P2: TPM2B_DIGEST digest = { size(2)=32 + 32 B }
+         *   P3: TPMT_TK_HASHCHECK validation = { tag(2)=TPM_ST_HASHCHECK,
+         *                                        hierarchy(4)=TPM_RH_NULL,
+         *                                        digest.size(2)=0 }
+         */
+        static const uint8_t digest[32] = {
+            0xCA,0xFE,0xBA,0xBE, 0xCA,0xFE,0xBA,0xBE,
+            0xCA,0xFE,0xBA,0xBE, 0xCA,0xFE,0xBA,0xBE,
+            0xCA,0xFE,0xBA,0xBE, 0xCA,0xFE,0xBA,0xBE,
+            0xCA,0xFE,0xBA,0xBE, 0xCA,0xFE,0xBA,0xBE,
+        };
+        uint8_t cmd[256]; uint8_t *p = cmd;
+        p = put_u16(p, (uint16_t)TPM_ST_SESSIONS);
+        p = put_u32(p, 0);                            /* size placeholder */
+        p = put_u32(p, TPM_CC_SignDigest);
+        p = put_u32(p, probeKey);
+        p = put_u32(p, 9);                            /* authArea size */
+        p = put_u32(p, TPM_RS_PW); p = put_u16(p, 0); *p++ = 0; p = put_u16(p, 0);
+        /* P1: context (empty TPM2B_SIGNATURE_CTX) */
+        p = put_u16(p, 0);
+        /* P2: digest (TPM2B_DIGEST, 32 B) */
+        p = put_u16(p, 32);
+        memcpy(p, digest, 32); p += 32;
+        /* P3: validation TPMT_TK_HASHCHECK = NULL ticket */
+        p = put_u16(p, 0x8024u);                      /* TPM_ST_HASHCHECK */
+        p = put_u32(p, 0x40000007u);                  /* TPM_RH_NULL */
+        p = put_u16(p, 0);                            /* digest.size = 0 */
+        uint32_t len = (uint32_t)(p - cmd);
+        put_u32(cmd + 2, len);
+
+        printf("  [INFO] Test 11 RC4-wire-conformance: sending spec-compliant SignDigest wire (%u B total)\n", len);
+
+        resp_len = sizeof(resp);
+        send_command(cmd, len, resp, &resp_len);
+        uint32_t rc = response_rc(resp, resp_len);
+
+        printf("  [INFO] Test 11 RC4-wire-conformance: response rc = 0x%08x\n", rc);
+
+        if (rc != 0) {
+            if ((rc & 0xbfu) == 0xa0u) {
+                FAIL("Test 11 RC4-wire-conformance: rc=0x%08x = TPM_RC_TICKET — restricted-key guard mis-applied to unrestricted probeKey", rc);
+            } else if ((rc & 0xbfu) == 0x92u) {
+                FAIL("Test 11 RC4-wire-conformance: rc=0x%08x = TPM_RC_SCHEME — wire-format migration regressed (libtpms still expects legacy 5-field shape)", rc);
+            } else {
+                FAIL("Test 11 RC4-wire-conformance: rc=0x%08x — spec-compliant SignDigest wire rejected at some unmarshal step", rc);
+            }
+            goto done;
+        }
+        PASS("Test 11 RC4-wire-conformance: spec-compliant SignDigest wire ACCEPTED (rc=0) — V1.85 RC4 Table 126 conformance confirmed");
     }
 
 done:

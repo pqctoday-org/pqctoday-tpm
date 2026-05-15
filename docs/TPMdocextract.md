@@ -593,9 +593,9 @@ both handles have `userWithAuth = 1` and empty `authValue`. Each session = 9 byt
 
 ---
 
-### 13.4 TPM2_SignDigest (Part 3 §20.7, CC = 0x000001A6) — V1.85
+### 13.4 TPM2_SignDigest (Part 3 §20.7, CC = 0x000001A6) — V1.85 RC4
 
-Tag: `TPM_ST_SESSIONS`.
+Tag: `TPM_ST_SESSIONS`. Wire shape per Part 3 §20.7.2 Table 126.
 
 **Request:**
 
@@ -603,13 +603,14 @@ Tag: `TPM_ST_SESSIONS`.
 tag (2) = 0x8002
 size (4)
 commandCode (4) = 0x000001A6
-H1: keyHandle (4)           // loaded ML-DSA or HashML-DSA signing key; must NOT be restricted
+H1: keyHandle (4)              // loaded ML-DSA or HashML-DSA signing key
 authArea (4 + session):
   session {handle(4), nonce(TPM2B), sessionAttribs(1), hmac(TPM2B)}
-P1: inScheme (TPMT_SIG_SCHEME)  // {scheme(2), details}; TPM_ALG_NULL (2B only) → key default
-P2: digest (TPM2B_DIGEST)       // {size(2), buffer[32]}  (SHA-256 hash)
-P3: context (TPM2B_SIGNATURE_CTX)  // {size(2)=0} for no context
-P4: hint (TPM2B_SIGNATURE_HINT)    // {size(2)=0} for no hint
+P1: context (TPM2B_SIGNATURE_CTX)   // {size(2), buffer[size]}; size=0 for no context
+P2: digest (TPM2B_DIGEST)           // {size(2), buffer[size]}; pre-computed digest or µ
+P3: validation (TPMT_TK_HASHCHECK)  // {tag(2)=TPM_ST_HASHCHECK,
+                                    //  hierarchy(4)=TPM_RH_NULL for NULL ticket,
+                                    //  digest(TPM2B)=empty for NULL ticket}
 ```
 
 **Response (success):**
@@ -627,9 +628,9 @@ TPMT_SIGNATURE:
 authArea (session response)
 ```
 
-**Restriction rule (V1.85 Part 3 §20.7; Part 1 §22.1.2):** Restricted signing keys (`TPMA_OBJECT.restricted = 1`) MUST be rejected with `TPM_RC_ATTRIBUTES + TPM_RC_H + TPM_RC_1 = 0x182`. TPM2_SignDigest accepts arbitrary pre-hashed data with no hashcheck ticket; allowing restricted keys would bypass the restriction security property. Use `TPM2_Sign` (with a `TPMT_TK_HASHCHECK` ticket) for restricted keys.
+**Restriction rule (V1.85 Part 3 §20.7.1; Part 1 §22.1.2):** "Signing using a restricted key is permitted, but it requires a valid `TPMT_TK_HASHCHECK` indicating that digest is known by the TPM to be the hash of some message which does not begin with `TCG_GENERATED_VALUE`." Note from spec: "There is currently no way to produce a `TPMT_TK_HASHCHECK` for ML-DSA, because the message representative (µ) is not simply the hash over the message." Practical consequence: restricted ML-DSA keys with a NULL ticket (`hierarchy = TPM_RH_NULL`) are rejected with `TPM_RC_TICKET` on parameter 3.
 
-**Note on TPMT_SIG_SCHEME wire encoding for NULL scheme:** When `inScheme.scheme = TPM_ALG_NULL` (0x0010), the `TPMU_SIG_SCHEME` is the `nullScheme` arm = `TPMS_EMPTY` = 0 bytes. The wire encoding is just 2 bytes (the scheme selector). The TPM then uses the key's implicit scheme (ML-DSA → TPM_ALG_MLDSA).
+**Wire-format history:** Pre-RC4 working drafts used `{inScheme, digest, context, hint}` (5 wire fields). RC4 finalized to `{context, digest, validation}` (3 parameters, 4 wire fields including the handle). pqctoday-tpm migrated to the RC4 shape on 2026-05-15 (commit pending). Confirmed end-to-end via wolfTPM PR #445 `examples/pqc/pqc_mssim_e2e` over swtpm socket: `EXIT=0`, signature 3309 B, `TPM_ST_DIGEST_VERIFIED` ticket returned.
 
 ---
 

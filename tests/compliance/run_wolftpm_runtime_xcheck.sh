@@ -39,18 +39,22 @@ trap 'pkill -9 swtpm 2>/dev/null || true' EXIT
 WORKSPACE=${WORKSPACE:-/workspace}
 WOLFTPM_DIR=${WOLFTPM_DIR:-/opt/build/wolftpm}
 
+# Auto-detect sudo need: Docker container runs as root, GH Actions runner does not.
+SUDO=""
+[ "$(id -u)" -ne 0 ] && SUDO="sudo"
+
 cd "$WORKSPACE"
 
 # ── Step 1: install our libtpms + swtpm ─────────────────────────────────────
 section "Setup — install pqctoday-tpm libtpms + swtpm"
 
-if ! ( cd libtpms && make install >/dev/null 2>&1 && ldconfig ); then
+if ! ( cd libtpms && $SUDO make install >/dev/null 2>&1 && $SUDO ldconfig ); then
     fail "libtpms install failed"
     exit 1
 fi
 pass "libtpms installed and ldconfig'd"
 
-if ! ( cd swtpm && make install >/dev/null 2>&1 ); then
+if ! ( cd swtpm && $SUDO make install >/dev/null 2>&1 ); then
     fail "swtpm install failed"
     exit 1
 fi
@@ -181,6 +185,28 @@ for dsa in 44 65 87; do
         fail "ML-DSA-$dsa unexpected sign-path outcome:\n$(echo "$out" | sed 's/^/         /')"
     fi
 done
+
+# ── Step 6: V1.85 RC4 SignDigest / VerifyDigestSignature wire-format gate ───
+#
+# Per V1.85 RC4 Part 3 §20.7.2 Table 126 and §20.4.2 Table 120, the wire
+# shapes are:
+#   SignDigest:              {keyHandle, context, digest, validation}
+#   VerifyDigestSignature:   {keyHandle, context, digest, signature}
+#
+# pqctoday-tpm migrated to these shapes on 2026-05-15. This step pins the
+# migration: wolfTPM's pqc_mssim_e2e drives wolfTPM2_SignDigest +
+# wolfTPM2_VerifyDigestSignature against our libtpms over the swtpm socket.
+# Prior to the migration, this binary exited 1 with "SignDigest rc=466"
+# (0x1d2 = TPM_RC_SCHEME). After migration it must exit 0.
+section "V1.85 RC4 SignDigest/VerifyDigestSignature wire-format gate"
+
+out=$( "$WOLFTPM_DIR/examples/pqc/pqc_mssim_e2e" 2>&1 )
+ec=$?
+if [[ "$ec" -eq 0 ]] && echo "$out" | grep -q "All PQC mssim round-trips passed"; then
+    pass "wolfTPM pqc_mssim_e2e: MLKEM Encap/Decap + HashMLDSA-65 SignDigest/Verify all green (RC4 §20.7/§20.4 wire conformance)"
+else
+    fail "wolfTPM pqc_mssim_e2e failed (exit=$ec):\n$(echo "$out" | sed 's/^/         /')"
+fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────
 section "wolfTPM v4.0.0 PR #445 ↔ pqctoday-tpm runtime cross-check summary"

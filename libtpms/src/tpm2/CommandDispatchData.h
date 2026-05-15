@@ -4482,18 +4482,20 @@ typedef const struct {
     UINT16  paramOffsets[3];
     BYTE    types[7];
 } VerifyDigestSignature_COMMAND_DESCRIPTOR_t;
+/* V1.85 RC4 Part 3 §20.4.2 Table 120 wire order:
+ * { @keyHandle, context, digest, signature }. */
 VerifyDigestSignature_COMMAND_DESCRIPTOR_t _VerifyDigestSignatureData = {
     /* entry         */ &TPM2_VerifyDigestSignature,
     /* inSize        */ (UINT16)(sizeof(VerifyDigestSignature_In)),
     /* outSize       */ (UINT16)(sizeof(VerifyDigestSignature_Out)),
     /* offsetOfTypes */ offsetof(VerifyDigestSignature_COMMAND_DESCRIPTOR_t, types),
-    /* offsets       */ {(UINT16)(offsetof(VerifyDigestSignature_In, digest)),
-                         (UINT16)(offsetof(VerifyDigestSignature_In, signature)),
-                         (UINT16)(offsetof(VerifyDigestSignature_In, context))},
+    /* offsets       */ {(UINT16)(offsetof(VerifyDigestSignature_In, context)),
+                         (UINT16)(offsetof(VerifyDigestSignature_In, digest)),
+                         (UINT16)(offsetof(VerifyDigestSignature_In, signature))},
     /* types         */ {TPMI_DH_OBJECT_H_UNMARSHAL,
+                         TPM2B_SIGNATURE_CTX_P_UNMARSHAL,
                          TPM2B_DIGEST_P_UNMARSHAL,
                          TPMT_SIGNATURE_P_UNMARSHAL,
-                         TPM2B_SIGNATURE_CTX_P_UNMARSHAL,
                          END_OF_LIST,
                          TPMT_TK_VERIFIED_P_MARSHAL,
                          END_OF_LIST}
@@ -4514,23 +4516,23 @@ typedef const struct {
     UINT16  inSize;
     UINT16  outSize;
     UINT16  offsetOfTypes;
-    UINT16  paramOffsets[4];
-    BYTE    types[8];
+    UINT16  paramOffsets[3];
+    BYTE    types[7];
 } SignDigest_COMMAND_DESCRIPTOR_t;
+/* V1.85 RC4 Part 3 §20.7.2 Table 126 wire order:
+ * { @keyHandle, context, digest, validation }. */
 SignDigest_COMMAND_DESCRIPTOR_t _SignDigestData = {
     /* entry         */ &TPM2_SignDigest,
     /* inSize        */ (UINT16)(sizeof(SignDigest_In)),
     /* outSize       */ (UINT16)(sizeof(SignDigest_Out)),
     /* offsetOfTypes */ offsetof(SignDigest_COMMAND_DESCRIPTOR_t, types),
-    /* offsets       */ {(UINT16)(offsetof(SignDigest_In, inScheme)),
+    /* offsets       */ {(UINT16)(offsetof(SignDigest_In, context)),
                          (UINT16)(offsetof(SignDigest_In, digest)),
-                         (UINT16)(offsetof(SignDigest_In, context)),
-                         (UINT16)(offsetof(SignDigest_In, hint))},
+                         (UINT16)(offsetof(SignDigest_In, validation))},
     /* types         */ {TPMI_DH_OBJECT_H_UNMARSHAL,
-                         TPMT_SIG_SCHEME_P_UNMARSHAL + ADD_FLAG,
-                         TPM2B_DIGEST_P_UNMARSHAL,
                          TPM2B_SIGNATURE_CTX_P_UNMARSHAL,
-                         TPM2B_SIGNATURE_HINT_P_UNMARSHAL,
+                         TPM2B_DIGEST_P_UNMARSHAL,
+                         TPMT_TK_HASHCHECK_P_UNMARSHAL,
                          END_OF_LIST,
                          TPMT_SIGNATURE_P_MARSHAL,
                          END_OF_LIST}
