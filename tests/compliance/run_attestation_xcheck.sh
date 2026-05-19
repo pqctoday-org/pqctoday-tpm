@@ -34,6 +34,7 @@ PASS=0
 FAIL=0
 
 WORKSPACE="${WORKSPACE:-/workspace}"
+WOLFTPM_DIR="${WOLFTPM_DIR:-/opt/build/wolftpm}"
 
 # Auto-detect sudo need: Docker container runs as root, GH Actions runner does not.
 SUDO=""
@@ -105,11 +106,11 @@ trap cleanup_swtpm EXIT
 section "Build pqc_attestation_xcheck client"
 
 CLIENT=/tmp/pqc_attestation_xcheck
-if ! gcc -I/opt/build/wolftpm -I/opt/wolfssl/include -I/opt/openssl/include \
+if ! gcc -I"${WOLFTPM_DIR}" -I/opt/wolfssl/include -I/opt/openssl/include \
         -DWOLFTPM_V185 -O2 -Wall \
         tests/compliance/clients/pqc_attestation_xcheck.c \
-        /opt/build/wolftpm/hal/tpm_io.c \
-        -L/opt/build/wolftpm/src/.libs -Wl,-rpath,/opt/build/wolftpm/src/.libs -lwolftpm \
+        "${WOLFTPM_DIR}/hal/tpm_io.c" \
+        -L"${WOLFTPM_DIR}/src/.libs" -Wl,-rpath,"${WOLFTPM_DIR}/src/.libs" -lwolftpm \
         /opt/wolfssl/lib/libwolfssl.a \
         -L/opt/openssl/lib64 -Wl,-rpath,/opt/openssl/lib64 \
         -lssl -lcrypto -lm -lpthread \
@@ -127,7 +128,7 @@ section "Drive TPM2_Quote / TPM2_Certify with ML-DSA AKs (artifacts → $ARTIFAC
 # Run the binary; it reports its own [PASS]/[FAIL] lines per case using the
 # same idiom as the existing xcheck script — they are mirrored into the
 # overall tally below.
-if ! LD_LIBRARY_PATH=/opt/openssl/lib64:/opt/build/wolftpm/src/.libs \
+if ! LD_LIBRARY_PATH=/opt/openssl/lib64:"${WOLFTPM_DIR}/src/.libs" \
         "$CLIENT" "$ARTIFACT_DIR" 2>&1 | tee /tmp/attest_run.log; then
     : # Per-case FAILs are already printed; client exit non-zero just means
       # FAIL count > 0, summarised below.
