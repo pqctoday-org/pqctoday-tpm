@@ -435,13 +435,26 @@ static int parse_create_primary_resp(const uint8_t *resp, uint32_t resp_len, cp_
         hex_to_string(y, y_sz, out->unique_hex + x_sz * 2);
         break;
     }
-    case TPM_ALG_MLDSA:
-    case TPM_ALG_MLKEM: {
+    case TPM_ALG_MLDSA: {
+        /* TPMS_MLDSA_PARMS (V1.85 Table 229): parameterSet(2) + allowExternalMu(1) */
         out->parameter_set = get_u16(q); q += 2;
+        q += 1; /* skip allowExternalMu */
         uint16_t uniq = get_u16(q); q += 2;
         out->unique_bytes = uniq;
         if (q + uniq > end || uniq > sizeof(out->unique_hex) / 2 - 1) return -1;
         hex_to_string(q, uniq, out->unique_hex);
+        break;
+    }
+    case TPM_ALG_MLKEM: {
+        /* TPMS_MLKEM_PARMS (V1.85 Table 231): symmetric(TPMT_SYM_DEF_OBJECT) + parameterSet(2)
+         * TPMT_SYM_DEF_OBJECT = algorithm(2); if not NULL, also keyBits(2)+mode(2). */
+        uint16_t sym_k = get_u16(q); q += 2;
+        if (sym_k != TPM_ALG_NULL) q += 4;  /* skip keyBits + mode for AES-128-CFB */
+        out->parameter_set = get_u16(q); q += 2;
+        uint16_t uniq_k = get_u16(q); q += 2;
+        out->unique_bytes = uniq_k;
+        if (q + uniq_k > end || uniq_k > sizeof(out->unique_hex) / 2 - 1) return -1;
+        hex_to_string(q, uniq_k, out->unique_hex);
         break;
     }
     default: return -1;
