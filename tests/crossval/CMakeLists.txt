@@ -58,6 +58,7 @@ add_executable(tpm_bench
     src/tpm_bench.c
 )
 target_compile_options(tpm_bench PRIVATE -Wall -Wextra)
-target_link_libraries(tpm_bench PRIVATE tpms)
+target_include_directories(tpm_bench PRIVATE ${OPENSSL_INCLUDE_DIR})
+target_link_libraries(tpm_bench PRIVATE tpms OpenSSL::Crypto)
 
 # install into build dir; `make crossval` in the top-level Makefile runs the binary

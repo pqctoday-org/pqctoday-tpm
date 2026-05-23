@@ -41,12 +41,17 @@
 #include <libtpms/tpm_error.h>
 #include <libtpms/tpm_library.h>
 
+#include <openssl/evp.h>
+#include <openssl/core_names.h>
+#include <openssl/params.h>
+
 /* ─── TPM 2.0 constants (TCG V1.85 Parts 1–2) ─────────────────────── */
 #define TPM_ST_NO_SESSIONS              0x8001
 #define TPM_ST_SESSIONS                 0x8002
 #define TPM_CC_Startup                  0x00000144
 #define TPM_CC_CreatePrimary            0x00000131
 #define TPM_CC_FlushContext             0x00000165
+#define TPM_CC_Quote                    0x00000158
 
 #define TPM_RH_OWNER                    0x40000001
 #define TPM_RH_ENDORSEMENT              0x4000000B
@@ -579,14 +584,259 @@ static int run_one(run_t r) {
     return (io_rc == 0 && cr.rc == 0 && parse_rc == 0) ? 0 : 1;
 }
 
+/* ─── TPM2_Quote + OpenSSL attestation verify ─────────────────────── */
+
+/* Hex-decode a NUL-terminated hex string into out[]. Returns 0 on success.
+ * out_len receives the byte count (strlen(hex)/2). */
+static int hex_decode(const char *hex, uint8_t *out, size_t cap, size_t *out_len)
+{
+    size_t n = strlen(hex);
+    if (n & 1u) return -1;
+    *out_len = n / 2;
+    if (*out_len > cap) return -1;
+    for (size_t i = 0; i < *out_len; i++) {
+        int hi = 0, lo = 0;
+        char h = hex[2 * i], l = hex[2 * i + 1];
+        if (h >= '0' && h <= '9') hi = h - '0';
+        else if (h >= 'a' && h <= 'f') hi = h - 'a' + 10;
+        else if (h >= 'A' && h <= 'F') hi = h - 'A' + 10;
+        else return -1;
+        if (l >= '0' && l <= '9') lo = l - '0';
+        else if (l >= 'a' && l <= 'f') lo = l - 'a' + 10;
+        else if (l >= 'A' && l <= 'F') lo = l - 'A' + 10;
+        else return -1;
+        out[i] = (uint8_t)((hi << 4) | lo);
+    }
+    return 0;
+}
+
+/* OpenSSL EVP_DigestVerify for ML-DSA-65. Returns 1 on accept, 0 on reject.
+ * Independent of the libtpms signer — different EVP_PKEY instance, same
+ * FIPS 204 implementation (both use OpenSSL 3.6.2 but on separate code paths). */
+static int openssl_verify_mldsa65(const uint8_t *pub, size_t pub_len,
+                                   const uint8_t *msg, size_t msg_len,
+                                   const uint8_t *sig, size_t sig_len)
+{
+    EVP_PKEY_CTX *gctx = NULL;
+    EVP_PKEY     *pkey = NULL;
+    EVP_MD_CTX   *mdctx = NULL;
+    int ok = 0;
+
+    OSSL_PARAM params[2];
+    params[0] = OSSL_PARAM_construct_octet_string(
+        OSSL_PKEY_PARAM_PUB_KEY, (void *)pub, pub_len);
+    params[1] = OSSL_PARAM_construct_end();
+
+    gctx = EVP_PKEY_CTX_new_from_name(NULL, "ML-DSA-65", NULL);
+    if (!gctx) goto done;
+    if (EVP_PKEY_fromdata_init(gctx) <= 0) goto done;
+    if (EVP_PKEY_fromdata(gctx, &pkey, EVP_PKEY_PUBLIC_KEY, params) <= 0) goto done;
+
+    mdctx = EVP_MD_CTX_new();
+    if (!mdctx) goto done;
+    if (EVP_DigestVerifyInit_ex(mdctx, NULL, NULL, NULL, NULL, pkey, NULL) <= 0) goto done;
+    ok = (EVP_DigestVerify(mdctx, sig, sig_len, msg, msg_len) == 1);
+done:
+    EVP_MD_CTX_free(mdctx);
+    EVP_PKEY_free(pkey);
+    EVP_PKEY_CTX_free(gctx);
+    return ok;
+}
+
+/* Build TPM2_Quote command (Part 3 §18.4).
+ * Quotes PCR0..PCR7 in the SHA-256 bank using aik_handle. */
+static uint32_t build_tpm2_quote(uint8_t *cmd, uint32_t aik_handle,
+                                  const uint8_t *nonce, uint16_t nonce_len)
+{
+    uint8_t *p = cmd;
+    p = put_u16(p, TPM_ST_SESSIONS);
+    uint8_t *sz = p; p += 4;           /* size placeholder */
+    p = put_u32(p, TPM_CC_Quote);
+    p = put_u32(p, aik_handle);
+    /* auth area: 9-byte empty-password session */
+    p = put_u32(p, 9);
+    p = put_u32(p, TPM_RS_PW);
+    p = put_u16(p, 0);
+    *p++ = 0;
+    p = put_u16(p, 0);
+    /* qualifyingData: TPM2B_DATA */
+    p = put_u16(p, nonce_len);
+    memcpy(p, nonce, nonce_len); p += nonce_len;
+    /* inScheme: TPM_ALG_NULL — libtpms derives hash from nameAlg (FIPS 204
+     * per pqc_attestation_xcheck.c §do_quote: NULL avoids union body). */
+    p = put_u16(p, TPM_ALG_NULL);
+    /* PCRselect: count=1, SHA-256 bank, PCR0..PCR7 (sizeofSelect=3). */
+    p = put_u32(p, 1);
+    p = put_u16(p, TPM_ALG_SHA256);
+    *p++ = 3;
+    *p++ = 0xff;                       /* pcrSelect[0]: PCR0..PCR7 */
+    *p++ = 0x00;
+    *p++ = 0x00;
+    uint32_t total = (uint32_t)(p - cmd);
+    put_u32(sz, total);
+    return total;
+}
+
+typedef struct {
+    uint32_t rc;
+    uint8_t  attest[2048];
+    uint16_t attest_size;
+    uint16_t sig_alg;
+    uint8_t  sig[4096];
+    uint16_t sig_size;
+} quote_resp_t;
+
+/* Parse TPM2_Quote response. On success fills *out and returns 0. */
+static int parse_tpm2_quote_resp(const uint8_t *resp, uint32_t resp_len,
+                                  quote_resp_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (resp_len < 10) return -1;
+    out->rc = get_u32(resp + 6);
+    if (out->rc != 0) return 0;
+
+    const uint8_t *q   = resp + 10;
+    const uint8_t *end = resp + resp_len;
+    if (q + 4 > end) return -1;
+    q += 4;                            /* parameterSize (sessions present) */
+
+    /* quoted: TPM2B_ATTEST {size(2), data[size]} */
+    if (q + 2 > end) return -1;
+    out->attest_size = get_u16(q); q += 2;
+    if (out->attest_size > (uint16_t)sizeof(out->attest)) return -1;
+    if (q + out->attest_size > end) return -1;
+    memcpy(out->attest, q, out->attest_size);
+    q += out->attest_size;
+
+    /* signature: TPMT_SIGNATURE — sigAlg(2) then TPMS_SIGNATURE_MLDSA {size(2),buf} */
+    if (q + 2 > end) return -1;
+    out->sig_alg = get_u16(q); q += 2;
+    if (q + 2 > end) return -1;
+    out->sig_size = get_u16(q); q += 2;
+    if (out->sig_size > (uint16_t)sizeof(out->sig)) return -1;
+    if (q + out->sig_size > end) return -1;
+    memcpy(out->sig, q, out->sig_size);
+    return 0;
+}
+
+/* Full attestation sequence: CreatePrimary(AIK, ML-DSA-65) → TPM2_Quote →
+ * OpenSSL verify. Emits a JSON bundle to stdout and returns 0 on pass. */
+static int run_attestation_mode(void)
+{
+    static const uint8_t NONCE[] = "pqctoday-sandbox-tpm-quote-nonce";
+    static uint8_t cmd[8192], resp[65536];
+    uint32_t resp_len;
+
+    /* CreatePrimary: AIK / ML-DSA-65 */
+    resp_len = sizeof(resp);
+    uint32_t cmd_len = build_create_primary(cmd, ROLE_AIK, ALG_MLDSA65);
+    trace("cmd", "aik_create", "mldsa65", cmd, cmd_len);
+    unsigned char *rb = resp;
+    uint32_t rs = 0;
+    int io_rc = TPMLIB_Process(&rb, &rs, &resp_len, cmd, cmd_len);
+    trace("resp", "aik_create", "mldsa65", resp, rs);
+
+    cp_resp_t cr;
+    int parse_rc = parse_create_primary_resp(resp, rs, &cr);
+    if (io_rc != 0 || cr.rc != 0 || parse_rc != 0) {
+        fprintf(stderr,
+                "{\"error\":\"CreatePrimary(AIK,MLDSA65) failed\","
+                "\"tpm_rc\":\"0x%08X\"}\n", cr.rc);
+        return 1;
+    }
+    uint32_t aik_handle = cr.new_handle;
+
+    /* Decode raw public key bytes for OpenSSL verify. */
+    static uint8_t pub_bytes[2048];
+    size_t pub_len = 0;
+    if (hex_decode(cr.unique_hex, pub_bytes, sizeof(pub_bytes), &pub_len) != 0
+            || pub_len == 0) {
+        flush_handle(aik_handle);
+        fprintf(stderr, "{\"error\":\"hex decode of AIK public key failed\"}\n");
+        return 1;
+    }
+
+    /* TPM2_Quote using the AIK handle */
+    resp_len = sizeof(resp);
+    cmd_len = build_tpm2_quote(cmd, aik_handle,
+                               NONCE, (uint16_t)(sizeof(NONCE) - 1));
+    trace("cmd", "quote", "mldsa65", cmd, cmd_len);
+    rb = resp; rs = 0;
+    io_rc = TPMLIB_Process(&rb, &rs, &resp_len, cmd, cmd_len);
+    trace("resp", "quote", "mldsa65", resp, rs);
+
+    quote_resp_t qr;
+    parse_rc = parse_tpm2_quote_resp(resp, rs, &qr);
+    flush_handle(aik_handle);
+
+    if (io_rc != 0 || qr.rc != 0 || parse_rc != 0) {
+        fprintf(stderr,
+                "{\"error\":\"TPM2_Quote failed\","
+                "\"tpm_rc\":\"0x%08X\"}\n", qr.rc);
+        return 1;
+    }
+
+    /* OpenSSL EVP_DigestVerify — independent of the libtpms signer. */
+    int verified = openssl_verify_mldsa65(
+        pub_bytes, pub_len,
+        qr.attest, qr.attest_size,
+        qr.sig, qr.sig_size);
+
+    /* TPM_GENERATED_VALUE = 0xFF544347 must prefix every TPMS_ATTEST. */
+    int magic_ok = (qr.attest_size >= 4 &&
+                    qr.attest[0] == 0xFF && qr.attest[1] == 0x54 &&
+                    qr.attest[2] == 0x43 && qr.attest[3] == 0x47);
+    int pk_ok  = (pub_len == 1952);
+    int sig_ok = (qr.sig_size == 3309);
+    int pass   = (magic_ok && verified && pk_ok && sig_ok);
+
+    printf("{\n");
+    printf("  \"schema\": \"pqctoday.tpm.attestation/1\",\n");
+    printf("  \"operation\": \"TPM2_Quote\",\n");
+    printf("  \"standard\": \"TCG TPM 2.0 Library V1.85 RC4 Part 3 §18.4\",\n");
+    printf("  \"algorithm\": \"ML-DSA-65\",\n");
+    printf("  \"aik\": {\n");
+    printf("    \"role\": \"AIK\",\n");
+    printf("    \"alg\": \"mldsa65\",\n");
+    printf("    \"pk_bytes\": %zu,\n", pub_len);
+    printf("    \"pk_spec\": \"FIPS 204 §7 Table 2: ML-DSA-65 pk = 1952 B\",\n");
+    printf("    \"pk_size_ok\": %s\n", pk_ok ? "true" : "false");
+    printf("  },\n");
+    printf("  \"quote\": {\n");
+    printf("    \"attest_bytes\": %u,\n", (unsigned)qr.attest_size);
+    printf("    \"magic_ok\": %s,\n", magic_ok ? "true" : "false");
+    printf("    \"magic_ref\": \"TPM_GENERATED_VALUE = 0xFF544347 (Part 2 §10.12.1)\",\n");
+    printf("    \"sig_alg\": \"0x%04X\",\n", qr.sig_alg);
+    printf("    \"sig_alg_name\": \"%s\",\n",
+           (qr.sig_alg == TPM_ALG_MLDSA) ? "TPM_ALG_MLDSA" : "UNKNOWN");
+    printf("    \"sig_bytes\": %u,\n", (unsigned)qr.sig_size);
+    printf("    \"sig_spec\": \"FIPS 204 §7 Table 2: ML-DSA-65 sig = 3309 B\",\n");
+    printf("    \"sig_size_ok\": %s\n", sig_ok ? "true" : "false");
+    printf("  },\n");
+    printf("  \"verification\": {\n");
+    printf("    \"verifier\": \"OpenSSL 3.6.2 EVP_DigestVerify (independent of libtpms signer)\",\n");
+    printf("    \"result\": %s,\n", verified ? "true" : "false");
+    printf("    \"spec_ref\": \"FIPS 204 §3.2 + Part 1 §22.1.2 (restricted AIK)\"\n");
+    printf("  },\n");
+    printf("  \"pcr_selection\": {\"bank\": \"SHA-256\", \"pcrs\": \"PCR0..PCR7\"},\n");
+    printf("  \"nonce\": \"pqctoday-sandbox-tpm-quote-nonce\",\n");
+    printf("  \"pass\": %s\n", pass ? "true" : "false");
+    printf("}\n");
+
+    return pass ? 0 : 1;
+}
+
 /* ─── Main / argparse ─────────────────────────────────────────────── */
 
 static void usage(const char *argv0) {
     fprintf(stderr,
-        "Usage: %s [--trace] [--run role:alg]...\n"
+        "Usage: %s [--trace] [--attestation] [--run role:alg]...\n"
         "\n"
         "  --trace                Emit raw TPM command/response hex on stderr\n"
         "                         as single-line JSON trace events (one per op).\n"
+        "  --attestation          Run TPM2_Quote with ML-DSA-65 AIK and verify\n"
+        "                         via OpenSSL EVP_DigestVerify. Emits a JSON\n"
+        "                         attestation bundle and exits (skips the matrix).\n"
         "  --run ROLE:ALG         Queue a TPM2_CreatePrimary. Repeatable.\n"
         "                         ROLE ∈ {EK, SRK, AIK, IDevID}\n"
         "                         ALG  ∈ {rsa2048, p256, mldsa65, mlkem768}\n"
@@ -602,10 +852,13 @@ static void usage(const char *argv0) {
 int main(int argc, char **argv) {
     run_t queue[32];
     int   queue_n = 0;
+    int   g_attestation = 0;
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--trace")) {
             g_trace = 1;
+        } else if (!strcmp(argv[i], "--attestation")) {
+            g_attestation = 1;
         } else if (!strcmp(argv[i], "--run") && i + 1 < argc) {
             char spec[64];
             strncpy(spec, argv[++i], sizeof(spec) - 1);
@@ -672,6 +925,19 @@ int main(int argc, char **argv) {
         uint32_t rs = 0;
         TPMLIB_Process(&rb, &rs, &resp_len, cmd, len);
         trace("resp", "startup", "-", resp, rs);
+    }
+
+    /* If --attestation mode: run Quote sequence and exit early. */
+    if (g_attestation) {
+        int rc = run_attestation_mode();
+        TPMLIB_Terminate();
+        if (chdir(origcwd) == 0) {
+            char nvpath[4096 + 16];
+            snprintf(nvpath, sizeof(nvpath), "%s/NVChip", tmpdir);
+            (void)remove(nvpath);
+            (void)rmdir(tmpdir);
+        }
+        return rc;
     }
 
     /* ─── Emit the JSON envelope ─────────────────────────────────── */
