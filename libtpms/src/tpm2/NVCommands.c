@@ -688,12 +688,28 @@ TPM2_NV_Certify(
     else
 	{
 	    HASH_STATE                  hashState;
+	    TPMI_ALG_HASH                hashAlg;
 	    // This is to sign a digest of the data
 	    certifyInfo.type = TPM_ST_ATTEST_NV_DIGEST;
+	    // Get hash algorithm in sign scheme.  This hash algorithm is used to
+	    // compute nvDigest. If there is no algorithm, then for signatures with
+	    // no scheme hash (pure ML-DSA / HashML-DSA), Errata v1 section 2.7
+	    // directs the TPM to fall back to the signing key's Name algorithm
+	    // instead -- mirrors TPM2_Quote's identical fallback for pcrDigest
+	    // (Errata v1 section 2.6). If neither is available, this command
+	    // returns TPM_RC_SCHEME.
+	    hashAlg = in->inScheme.details.any.hashAlg;
+#if ALG_MLDSA || ALG_HASH_MLDSA
+	    if(hashAlg == TPM_ALG_NULL && (signObject->publicArea.type == TPM_ALG_MLDSA
+					|| signObject->publicArea.type == TPM_ALG_HASH_MLDSA))
+		hashAlg = signObject->publicArea.nameAlg;
+#endif
+	    if(hashAlg == TPM_ALG_NULL)
+		return TPM_RCS_SCHEME + RC_NV_Certify_inScheme;
 	    // Initialize the hash before calling the function to add the Index data to
 	    // the hash.
 	    certifyInfo.attested.nvDigest.nvDigest.t.size =
-		CryptHashStart(&hashState, in->inScheme.details.any.hashAlg);
+		CryptHashStart(&hashState, hashAlg);
 	    NvHashIndexData(&hashState, nvIndex, locator, 0,
 			    nvIndex->publicArea.dataSize);
 	    CryptHashEnd2B(&hashState, &certifyInfo.attested.nvDigest.nvDigest.b);

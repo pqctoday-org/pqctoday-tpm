@@ -97,8 +97,9 @@ TPMPropertyIsDefined(
 	    *value = TPM_SPEC_VERSION;
 	    break;
 	  case TPM_PT_DAY_OF_YEAR:
-	    // computed from the date value on the title page of the specification
-	    *value = TPM_SPEC_DAY_OF_YEAR;
+	    // Per V185 Errata v1 section 2.1, this slot now reports the errata
+	    // level (TPM_SPEC_ERRATA) rather than a day-of-year value.
+	    *value = TPM_SPEC_ERRATA;
 	    break;
 	  case TPM_PT_YEAR:
 	    // from the title page of the specification
