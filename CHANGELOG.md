@@ -6,6 +6,10 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+### Docs
+
+- **Standards archive refreshed to the PUBLISHED TCG TPM 2.0 Library v1.85 (2026-03-12).** `docs/standards/` previously held only the V1.85 RC4 (12 Dec 2025) drafts this fork was built against; TCG has since published the final v1.85 along with Errata Version 1, the published EK Credential Profile v2.7, and PC Client Platform TPM Profile v1.07 (which makes ML-KEM/ML-DSA support mandatory for PC-class TPMs, where the Library spec itself keeps them optional). All seven published PDFs are archived; RC4 drafts are retained for provenance only, explicitly marked do-not-cite. Errata v1 review found no wire-format changes affecting this fork's existing commands, but flagged one behavioral divergence worth tracking: §2.5 says a conforming TPM SHOULD return a NULL ticket for `TPM2_VerifyDigestSignature` over an external µ (the resulting ticket can't serve `TPM2_PolicyAuthorize`), while this fork (built from RC4) still returns a real `TPM_ST_DIGEST_VERIFIED` ticket.
+
 ## [0.8.0] — 2026-05-15
 
 **Breaking.** `TPM2_SignDigest` and `TPM2_VerifyDigestSignature` wire formats
