@@ -62,20 +62,24 @@
 #define _VENDORINFO_H
 
 // Define the TPM specification-specific capability values.
+// Per TCG TPM 2.0 Library v185 Errata v1 (2026-03-12) section 2.1, the
+// TPM_SPEC_DAY_OF_YEAR slot is retired in favor of TPM_SPEC_ERRATA (the
+// TPM_PT_DAY_OF_YEAR capability property is unchanged; only the backing
+// constant's name and meaning change), and TPM_SPEC_YEAR shall be zero.
 #define TPM_SPEC_FAMILY      (0x322E3000)
 #define TPM_SPEC_LEVEL_NUM   0		// libtpms added: TPM_SPEC_LEVEL without leading zeros and '()'
 #define TPM_SPEC_LEVEL       (00)
-#define TPM_SPEC_VERSION     183	// libtpms changed: removed '()'
-#define TPM_SPEC_YEAR        (2024)
-#define TPM_SPEC_DAY_OF_YEAR (25)
+#define TPM_SPEC_VERSION     185	// libtpms changed: removed '()'; V185 published 2026-03-12
+#define TPM_SPEC_YEAR        (0)	// shall be zero per Errata v1 section 2.1
+#define TPM_SPEC_ERRATA      (1)	// errata level implemented; was TPM_SPEC_DAY_OF_YEAR
 #define MAX_VENDOR_PROPERTY  (1)
 
 // Define the platform specification-specific capability values.
 #define PLATFORM_FAMILY      (1)		/* kgold changed for PC Client */
 #define PLATFORM_LEVEL       TPM_SPEC_LEVEL_NUM		// libtpms: changed
-#define PLATFORM_VERSION     (0x00000106)
+#define PLATFORM_VERSION     (0x00000107)	// TCG PC Client Platform TPM Profile v1.07 (2026-03-23)
 #define PLATFORM_YEAR        TPM_SPEC_YEAR		// libtpms: changed
-#define PLATFORM_DAY_OF_YEAR TPM_SPEC_DAY_OF_YEAR	// libtpms: changed
+#define PLATFORM_DAY_OF_YEAR TPM_SPEC_ERRATA	// libtpms: changed
 
 #endif
 
