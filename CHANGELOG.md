@@ -4,11 +4,69 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
-## [Unreleased]
+## [0.9.0] — 2026-08-10
+
+Spec-alignment and test-truthfulness work since 0.8.0. The headline is that
+`TPM2_GetCapability` had been answering with a spec baseline nearly three point
+releases behind the command set this engine actually ships. Also lands an
+attestation mode for `tpm_bench` that verifies a real `TPM2_Quote` outside
+libtpms, and corrects two PQC parameter parsers that were reading the wrong
+bytes and reporting the wrong key sizes.
+
+### Added
+
+- **`tpm_bench --attestation`.** Skips the migration matrix and instead runs
+  `CreatePrimary(AIK, ML-DSA-65)` → `TPM2_Quote(PCR0..7, SHA-256 bank)` →
+  OpenSSL `EVP_DigestVerify`. The verification path is OpenSSL, independent of
+  the libtpms signer, so the quote is checked by something other than the code
+  that produced it. Emits `pqctoday.tpm.attestation/1` JSON with `aik`, `quote`
+  and `verification` sections and a top-level `pass` boolean.
+
+### Fixed
+
+- **The engine reported a stale spec baseline over the wire.** `VendorInfo.h`
+  hardcoded `TPM_SPEC_VERSION=183` and `PLATFORM_VERSION=0x106` (PC Client PTP
+  v1.06) even though this fork implements the V1.85 PQC command set and the
+  current published PTP is v1.07. `TPM_SPEC_DAY_OF_YEAR` is renamed
+  `TPM_SPEC_ERRATA` and `TPM_SPEC_YEAR` zeroed, per Errata v1 §2.1. A
+  Node-level regression test (`test_v185_capabilities.mjs`) now asserts the
+  corrected values through a real `GetCapability` wire command rather than by
+  reading the header.
+
+- **`TPM2_NV_Certify` was missing the Name-algorithm fallback that
+  `TPM2_Quote` already had** (Errata v1 §2.7). Its digest-mode branch passed
+  `TPM_ALG_NULL` straight into `CryptHashStart()` for schemeless
+  ML-DSA/HashML-DSA signing keys, instead of falling back or refusing honestly.
+
+- **Both PQC parameter parsers in `tpm_bench` read the wrong offsets.** The
+  ML-DSA case skipped `allowExternalMu` (1 byte, V1.85 Table 229), so
+  `unique.size` came out as 263 B instead of 1952 B for ML-DSA-65. The ML-KEM
+  case read `symmetric` as `parameterSet` and `parameterSet` as `unique.size`;
+  it now mirrors the RSA/ECC parser and reports 1184 B for ML-KEM-768, matching
+  FIPS 203. Both `cross_check.pk_length_match` fields pass, sandbox E2E 63/63.
+
+- **NVChip expected size, 176832 → 176834.** The ML-KEM/ML-DSA command range
+  (0x1A3–0x1AA) pushed `COMMAND_COUNT` past a byte boundary, growing
+  `PERSISTENT_DATA.ppList` and `.auditCommands` by a byte each.
+
+- **The attestation cross-check hardcoded `/opt/build/wolftpm`** for its include
+  path, `hal/tpm_io.c`, `-L src/.libs` and `LD_LIBRARY_PATH`, while CI clones
+  wolfTPM to `/tmp/wolftpm` and sets `WOLFTPM_DIR`. It now uses the variable,
+  matching `run_wolftpm_runtime_xcheck.sh`, which already did (#10).
 
 ### Docs
 
 - **Standards archive refreshed to the PUBLISHED TCG TPM 2.0 Library v1.85 (2026-03-12).** `docs/standards/` previously held only the V1.85 RC4 (12 Dec 2025) drafts this fork was built against; TCG has since published the final v1.85 along with Errata Version 1, the published EK Credential Profile v2.7, and PC Client Platform TPM Profile v1.07 (which makes ML-KEM/ML-DSA support mandatory for PC-class TPMs, where the Library spec itself keeps them optional). All seven published PDFs are archived; RC4 drafts are retained for provenance only, explicitly marked do-not-cite. Errata v1 review found no wire-format changes affecting this fork's existing commands, but flagged one behavioral divergence worth tracking: §2.5 says a conforming TPM SHOULD return a NULL ticket for `TPM2_VerifyDigestSignature` over an external µ (the resulting ticket can't serve `TPM2_PolicyAuthorize`), while this fork (built from RC4) still returns a real `TPM_ST_DIGEST_VERIFIED` ticket.
+
+- **Two passages in the §18.4 spec extract were inference presented as
+  quotation.** A PDF grep across all four V1.85 RC4 parts found zero verbatim
+  matches for the claimed rule that `authPolicy` shall not be empty when
+  `adminWithPolicy` is SET. The real position is more nuanced — Part 1 §10.2
+  Table 8 plus §22.2.5 together make that combination functionally
+  unauthorizable, but the spec does not forbid it. Rewritten as "functionally
+  impossible" rather than "spec violation", with both citations spelled out.
+
+- **wolfTPM V1.85 RC4 cross-check acknowledgement report** archived (MD + PDF).
 
 ## [0.8.0] — 2026-05-15
 
