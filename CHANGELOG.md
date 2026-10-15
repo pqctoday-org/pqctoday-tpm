@@ -4,6 +4,37 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
+## [Unreleased]
+
+CI had failed since April. A clean Linux build now passes every CI step again:
+the 10 libtpms tests, the swtpm build and smoke test, the three
+cross-validation suites, `tpm_bench`, and the TCG V1.85 compliance suite
+(109 passed, 0 failed, 0 skipped).
+
+### Changed
+
+- **Profiles now decide whether the PQC algorithms are available.** ML-KEM,
+  ML-DSA and HashML-DSA used to be reported and usable under every runtime
+  profile, because `RuntimeAlgorithmCheckEnabled` returned TRUE for them
+  unconditionally. They now follow the profile like every other algorithm. The
+  `default-v1` profile lists them, so nothing changes there. A profile that
+  leaves them out no longer exposes them; that includes the frozen v0.9 `null`
+  profile and restricted custom profiles.
+- **Start the TPM with the `default-v1` profile to get PQC.** A TPM started with
+  no profile manufactures under the `null` profile and now lists no PQC
+  algorithm (before, it listed them, but the PQC commands 0x1A3-0x1AA were
+  already disabled there). Use `swtpm_setup --profile-name default-v1`, or
+  `TPMLIB_SetProfile("{\"Name\":\"default-v1\"}")` before `TPMLIB_MainInit()`.
+  The browser build, the compliance scripts and `test_pqc_phase3` already did.
+  `tpm_bench` and `test_tpm_roundtrip` now do too.
+
+### Fixed
+
+- **libtpms test expectations.** The expected NVChip size is back to 176832,
+  which is what a clean build writes; the PQC commands grow the in-memory
+  command bitmaps, not the serialised file. The expected custom profile in
+  `tpm2_setprofile` now includes the PQC commands that `default-v1` carries.
+
 ## [0.9.0] — 2026-08-10
 
 Spec-alignment and test-truthfulness work since 0.8.0. The headline is that

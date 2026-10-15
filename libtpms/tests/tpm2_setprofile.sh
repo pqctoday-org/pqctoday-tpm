@@ -25,7 +25,10 @@ rc=$?
 if ! fs=$(get_filesize NVChip); then
 	exit 1
 fi
-exp=176834
+# Size of the NVChip file a clean build writes (Linux, amd64 and arm64,
+# OpenSSL 3.6.2). The PQC commands 0x1A3-0x1AA grow the in-memory command
+# bitmaps, but not this serialised file: a clean build still writes 176832.
+exp=176832
 if [ "$fs" -ne "$exp" ]; then
 	echo "Error: Unexpected size of NVChip file."
 	echo "Expected: $exp"
