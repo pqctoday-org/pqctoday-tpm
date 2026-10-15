@@ -4,7 +4,7 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
-## [Unreleased]
+## [0.10.1] — 2026-10-15
 
 Two fixes found by cross-checking against wolfTPM 4.2.0 and the published
 TPM 2.0 Library v1.85 (2026-03-12). The first is a regression in 0.10.0: ML-DSA keys
