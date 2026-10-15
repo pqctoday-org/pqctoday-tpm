@@ -24,14 +24,12 @@
 
 FROM pqctoday-tpm-dev
 
-# wolfSSL HEAD when we first ran the cross-check (post-PR #10051).
-# Bump deliberately when refreshing.
-ARG WOLFSSL_REF=7b53303
+# wolfSSL v5.9.4-stable (2026-09-25). Bump deliberately when refreshing.
+ARG WOLFSSL_REF=3c5eead44904df64e6a5a1f4ebdce377d35a849a
 
-# wolfTPM master — merge commit of PR #501 ("Fix changes to pqc header file
-# rename"), which closes wolfSSL/wolfTPM#499 (the mlkem.h/wc_mlkem.h probe bug
-# we filed) on top of PR #445's V1.85 PQC support.
-ARG WOLFTPM_REF=0ae18dcd138f2ea2aba7d146d05115cf294c07bb
+# wolfTPM v4.2.0 (2026-09-14), which includes PR #445 (V1.85 PQC) and PR #501
+# (the mlkem.h/wc_mlkem.h probe fix for wolfSSL/wolfTPM#499, which we filed).
+ARG WOLFTPM_REF=c3c0621333f6bf8795eace065b3903d54289adc8
 
 WORKDIR /opt/build
 
@@ -42,9 +40,11 @@ WORKDIR /opt/build
 # CFLAGS:
 #   -fPIC: required because wolfTPM links wolfSSL into a shared lib.
 #   -DWC_RSA_NO_PADDING: wolfTPM requires it for raw RSA operations.
-RUN git clone --depth=200 https://github.com/wolfSSL/wolfssl /opt/build/wolfssl \
-    && cd /opt/build/wolfssl \
-    && git checkout ${WOLFSSL_REF} \
+# Fetch the pinned commit itself: a shallow clone of the default branch may
+# not reach a release commit.
+RUN mkdir -p /opt/build/wolfssl && cd /opt/build/wolfssl && git init -q \
+    && git remote add origin https://github.com/wolfSSL/wolfssl \
+    && git fetch -q --depth=1 origin ${WOLFSSL_REF} && git checkout -q FETCH_HEAD \
     && ./autogen.sh \
     && ./configure \
         --prefix=/opt/wolfssl \
@@ -69,9 +69,9 @@ RUN git clone --depth=200 https://github.com/wolfSSL/wolfssl /opt/build/wolfssl 
 #                  MLKEM helpers, examples/pqc/* binaries.
 # --enable-swtpm:  socket transport (default port 2321/2322), the channel
 #                  we use to point wolfTPM at our libtpms-backed swtpm.
-RUN git clone --depth=200 https://github.com/wolfSSL/wolfTPM /opt/build/wolftpm \
-    && cd /opt/build/wolftpm \
-    && git checkout ${WOLFTPM_REF} \
+RUN mkdir -p /opt/build/wolftpm && cd /opt/build/wolftpm && git init -q \
+    && git remote add origin https://github.com/wolfSSL/wolfTPM \
+    && git fetch -q --depth=1 origin ${WOLFTPM_REF} && git checkout -q FETCH_HEAD \
     && ./autogen.sh \
     && ./configure \
         --prefix=/opt/wolftpm \
