@@ -637,6 +637,22 @@ In-tree references organized by purpose:
 
 ---
 
+## Credits
+
+The ML-KEM and ML-DSA support (TPM 2.0 Library V1.85) is the work of
+**PQC Today, LLC**. Upstream libtpms v0.10.2 and swtpm v0.10.1 have no
+post-quantum support. The TPM core is libtpms and swtpm by IBM Corporation
+and their contributors.
+
+If you use or build on the PQC work, please credit "pqctoday-tpm by PQC Today,
+LLC". [CITATION.cff](CITATION.cff) gives the citation, and GitHub shows it as
+"Cite this repository".
+
+---
+
 ## License
 
-BSD-3-Clause — same as upstream libtpms and swtpm.
+BSD-3-Clause — same as upstream libtpms and swtpm. Copyright (c) 2026 PQC Today,
+LLC for the PQC additions; the upstream copyright notices stay in their files.
+[NOTICE](NOTICE) lists what PQC Today, LLC added and which upstream files it
+changed (each carries a "Modified by PQC Today, LLC" line).

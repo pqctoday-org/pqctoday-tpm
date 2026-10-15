@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause */
+/* Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE. */
 
 #include <stdbool.h>
 #include <stdio.h>

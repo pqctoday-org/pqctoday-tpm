@@ -57,6 +57,7 @@
 /*  (c) Copyright IBM Corp. and others, 2023-2024				*/
 /*										*/
 /********************************************************************************/
+/* Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE. */
 
 #ifndef _VENDORINFO_H
 #define _VENDORINFO_H

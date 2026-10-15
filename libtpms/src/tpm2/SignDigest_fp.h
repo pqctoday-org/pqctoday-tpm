@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  TPM2_SignDigest — V1.85 ML-DSA / HashML-DSA sign over digest (Part 3 §20.7) */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                   */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /********************************************************************************/

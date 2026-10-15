@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  V1.85 ML-DSA / HashML-DSA command handlers                                 */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                   */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /*  Implemented (V1.85 RC4 Part 3 section numbers):                            */

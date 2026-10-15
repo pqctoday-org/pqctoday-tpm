@@ -15,7 +15,7 @@
  * committed yet). File-backed NV avoids this: s_NvFile != NULL short-circuits
  * the second _plat__NVEnable_NVChipFile() call, preserving manufactured state.
  *
- * Copyright 2026 PQC Today. BSD-3-Clause.
+ * Copyright 2026 PQC Today, LLC. BSD-3-Clause.
  */
 
 #include <stdint.h>

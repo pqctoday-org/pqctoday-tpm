@@ -57,6 +57,7 @@
 /*  (c) Copyright IBM Corp. and others, 2023				  	*/
 /*										*/
 /********************************************************************************/
+/* Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE. */
 
 // this file defines the desired command list that should be built into the
 // Tpm Core Lib.

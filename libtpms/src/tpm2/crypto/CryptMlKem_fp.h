@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*										*/
 /*			  ML-KEM (FIPS 203) — Function Prototypes		*/
-/*		Written for pqctoday-tpm (Copyright 2026 PQC Today)		*/
+/*		Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)		*/
 /*										*/
 /*  Implements the libtpms crypto contract for TPM_ALG_MLKEM added in TCG TPM	*/
 /*  2.0 Library Specification V1.85. ML-KEM is a Key Encapsulation Mechanism —	*/

@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  PqcSequenceCommands.c — V1.85 RC4 Phase 4 sequence-command handlers        */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                         */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                    */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /*  Implements the four ML-DSA sequence commands per V1.85 RC4 Part 3:          */

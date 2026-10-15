@@ -6,7 +6,7 @@
  * via dlopen + C_GetFunctionList; no softhsmv3 symbols are required at
  * link time, so the harness can also target third-party PKCS#11 modules.
  *
- * Copyright 2026 PQC Today. BSD-3-Clause.
+ * Copyright 2026 PQC Today, LLC. BSD-3-Clause.
  */
 
 #include "p11_helper.h"

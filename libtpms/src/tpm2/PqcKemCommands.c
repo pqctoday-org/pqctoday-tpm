@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  TPM2_Encapsulate / TPM2_Decapsulate — V1.85 ML-KEM commands               */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                   */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /*  V1.85 Part 3 §14.10 (Encapsulate) and §14.11 (Decapsulate).               */

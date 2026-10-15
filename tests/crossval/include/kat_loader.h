@@ -2,7 +2,7 @@
  * kat_loader.h — NIST ACVP known-answer vector loader
  *
  * Parses NIST ACVP internalProjection.json files into struct arrays our
- * harness can iterate. Copyright 2026 PQC Today. BSD-3-Clause.
+ * harness can iterate. Copyright 2026 PQC Today, LLC. BSD-3-Clause.
  */
 
 #ifndef KAT_LOADER_H

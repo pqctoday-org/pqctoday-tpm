@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: BSD-3-Clause */
+/* Copyright (c) 2026 PQC Today, LLC. Written for pqctoday-tpm. */
 /*
  * tcg_pqc_ek_constants.h
  *

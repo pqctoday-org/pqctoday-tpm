@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  TPM2_SignSequenceStart — V1.85 RC4 Part 3 §17.5 Tables 89-90              */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                   */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /*  Wire format (Table 89 Command):                                             */

@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*										*/
 /*		   ML-DSA (FIPS 204) implementation for libtpms			*/
-/*		Written for pqctoday-tpm (Copyright 2026 PQC Today)		*/
+/*		Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)		*/
 /*										*/
 /*  BSD-3-Clause clean-room implementation against OpenSSL 3.6+ EVP.		*/
 /*  The ML-DSA algorithm is covered by NIST FIPS 204 (August 2024).		*/

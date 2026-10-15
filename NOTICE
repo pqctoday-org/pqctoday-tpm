@@ -1,0 +1,29 @@
+pqctoday-tpm
+Copyright (c) 2026 PQC Today, LLC
+
+Post-quantum support for TPM 2.0 Library Specification Version 1.85:
+ML-KEM (FIPS 203) and ML-DSA (FIPS 204) keys, the TPM2_Encapsulate,
+TPM2_Decapsulate, TPM2_SignDigest, TPM2_VerifyDigestSignature and
+sign/verify sequence commands, ML-KEM salted sessions, and PQC
+endorsement-key provisioning in swtpm_setup. Added to libtpms v0.10.2
+and swtpm v0.10.1 by PQC Today, LLC. The upstream releases have no
+ML-KEM or ML-DSA support.
+
+This product includes software from these projects, each under its own
+licence, whose copyright notices are kept in the files and in the
+LICENSE files of their folders:
+
+  libtpms   libtpms/LICENSE   (C) IBM Corporation and others, BSD-3-Clause,
+                              with the Trusted Computing Group (TCG)
+                              source-code licence terms
+  swtpm     swtpm/LICENSE     (C) IBM Corporation and others, BSD-3-Clause
+
+Upstream files changed by PQC Today, LLC carry the line
+"Modified by PQC Today, LLC, 2026". Files written by PQC Today, LLC say
+so in their header. All other files are as released upstream.
+
+The TCG licence grants no patent rights. See libtpms/LICENSE.
+
+If you redistribute this software, BSD-3-Clause requires you to keep these
+copyright notices and licence texts. If you use or build on the PQC work,
+please credit "pqctoday-tpm by PQC Today, LLC" (see CITATION.cff).

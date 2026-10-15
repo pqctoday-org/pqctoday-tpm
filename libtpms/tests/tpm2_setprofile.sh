@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 # For the license, see the LICENSE file in the root directory.
+# Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE.
 
 ROOT=${abs_top_builddir:-$(pwd)/..}
 TESTDIR=${abs_top_testdir:-$(dirname "$0")}

@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  PqcSequence_fp.h — V1.85 RC4 Phase 4 sign/verify sequence support           */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                         */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                    */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /*  Provides the parallel slot pool and lifecycle for ML-DSA sign and verify    */

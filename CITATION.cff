@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use or build on this software, please cite it as below."
+title: "pqctoday-tpm: ML-KEM and ML-DSA for the TPM 2.0 Library Specification V1.85"
+abstract: >-
+  A fork of libtpms and swtpm that adds post-quantum ML-KEM (FIPS 203) and
+  ML-DSA (FIPS 204) support following the TPM 2.0 Library Specification
+  Version 1.85.
+authors:
+  - name: "PQC Today, LLC"
+type: software
+version: "0.10.1"
+date-released: "2026-10-15"
+license: BSD-3-Clause
+repository-code: "https://github.com/pqctoday-org/pqctoday-tpm"
+keywords:
+  - TPM 2.0
+  - post-quantum cryptography
+  - ML-KEM
+  - ML-DSA
+  - libtpms
+  - swtpm
+references:
+  - type: software
+    title: libtpms
+    authors:
+      - name: "IBM Corporation and the libtpms contributors"
+    version: "0.10.2"
+    repository-code: "https://github.com/stefanberger/libtpms"
+    license: BSD-3-Clause
+  - type: software
+    title: swtpm
+    authors:
+      - name: "IBM Corporation and the swtpm contributors"
+    version: "0.10.1"
+    repository-code: "https://github.com/stefanberger/swtpm"
+    license: BSD-3-Clause

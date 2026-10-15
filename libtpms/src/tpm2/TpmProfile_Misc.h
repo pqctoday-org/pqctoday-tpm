@@ -57,6 +57,7 @@
 /*  (c) Copyright IBM Corp. and others, 2023				  	*/
 /*										*/
 /********************************************************************************/
+/* Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE. */
 
 // Misc profile settings that don't currently have a better home.
 // These are rarely changed, but available for vendor customization.

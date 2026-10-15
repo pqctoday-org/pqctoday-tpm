@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  TPM2_VerifyDigestSignature — V1.85 ML-DSA verify over digest (Part 3 §20.4) */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                        */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                   */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /********************************************************************************/

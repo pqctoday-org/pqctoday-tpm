@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /*  PqcSequence.c — V1.85 RC4 Phase 4 sign/verify sequence slot pool            */
-/*  Written for pqctoday-tpm (Copyright 2026 PQC Today)                         */
+/*  Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)                    */
 /*  BSD-3-Clause                                                                */
 /*                                                                              */
 /********************************************************************************/
