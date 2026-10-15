@@ -9,8 +9,9 @@ This directory lists the normative references for this project's PQC work.
 > into this folder and check them against the SHA-256 values recorded there;
 > the links in the tables below then work locally. The superseded RC drafts
 > are no longer published by TCG; their SHA-256 values are listed below for
-> provenance. The NIST FIPS 203 and 204 PDFs are US government works and stay
-> in git.
+> provenance. The same script fetches the NIST FIPS 203 and 204 PDFs: this
+> repository redistributes no third-party documents, only links, checksums and
+> our own extractions (see `docs/TPMdocextract.md`).
 Every algorithm ID, command code, structure tag, and error value committed
 to `libtpms/src/tpm2/` traces back to a table in one of these documents.
 

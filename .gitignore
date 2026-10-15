@@ -101,8 +101,6 @@ vendor/
 patches/.pc/
 patches/series.local
 
-# ---- TCG specification PDFs (licensed for developing products; not redistributed) ----
-# Restore local copies with docs/standards/fetch-tcg-specs.sh. NIST FIPS PDFs stay tracked.
+# ---- Third-party specification PDFs (never redistributed from this repository) ----
+# Restore local copies with docs/standards/fetch-tcg-specs.sh.
 docs/standards/*.pdf
-!docs/standards/NIST.FIPS.203.pdf
-!docs/standards/NIST.FIPS.204.pdf
