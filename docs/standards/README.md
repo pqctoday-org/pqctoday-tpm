@@ -1,6 +1,16 @@
 # TCG TPM 2.0 Library Specification — V1.85 (Published, March 12, 2026)
 
-This directory archives the normative references for this project's PQC work.
+This directory lists the normative references for this project's PQC work.
+
+> **The TCG PDFs are not in git** (since 15 Oct 2026). TCG licenses the
+> specification text only for the purpose of developing products, so this
+> public repository does not redistribute it. Run
+> `docs/standards/fetch-tcg-specs.sh` to download the published documents
+> into this folder and check them against the SHA-256 values recorded there;
+> the links in the tables below then work locally. The superseded RC drafts
+> are no longer published by TCG; their SHA-256 values are listed below for
+> provenance. The NIST FIPS 203 and 204 PDFs are US government works and stay
+> in git.
 Every algorithm ID, command code, structure tag, and error value committed
 to `libtpms/src/tpm2/` traces back to a table in one of these documents.
 
@@ -105,25 +115,32 @@ published Part 2 §6.3/§6.5/§6.9 tables (unchanged at publication):
 
 ## License
 
-TCG specifications are published under a royalty-free reproduction
-license (see Part 0 §1 "Copyright Licenses"). We keep local copies here
-so every contributor can verify the implementation against the spec
-without an external download.
+TCG specifications are published under TCG's licence terms (see Part 0,
+"Disclaimers, Notices, and License Terms"): the reference source code may be
+reproduced and modified, but the rest of the specification may be reproduced
+and distributed "solely for the purpose of developing products". This
+repository therefore keeps only links and checksums for the TCG documents.
+
+SHA-256 of the superseded drafts this fork was first written from:
+
+| File | SHA-256 |
+|---|---|
+| TPM-2.0-Library-Part-0_Introduction-V185-RC4.pdf | `4003c36714a88ccd70fdf6c2b0a7ea081e222ad82c281a175f7b8f3829872032` |
+| TPM-2.0-Library-Part-1_Architecture-V185-RC4.pdf | `537af73828601c5a6082fcb5c2b1ff1de0d84e4aadac6afa90339d5ac17fb070` |
+| TPM-2.0-Library-Part-2_Structures-V185-RC4.pdf | `24a941a0123281f27f0dbafbca6dc1505feb63c50114c19cf0e12140a239b9e1` |
+| TPM-2.0-Library-Part-3_Commands-V185-RC4.pdf | `5a790a755762b27b2041c4be894ef1a0755836bc1df29cbb720d7fde0d8796ee` |
+| TCG-EK-Credential-Profile-for-TPM-Family-2p0-Level-0-V2p7-RC1_7November2025.pdf | `2b8c1ac761515f808d9489b9b62c4c6ee3fb08d9d94546542940f06e90309bc6` |
 
 ## Refreshing
 
 ```bash
-cd docs/standards
-BASE="https://trustedcomputinggroup.org/wp-content/uploads"
-for F in \
-  "Trusted-Platform-Module-2.0-Library-Part-0-Introduction_Version-185_pub.pdf" \
-  "Trusted-Platform-Module-2.0-Library-Part-1-Architecture_Version-185_pub.pdf" \
-  "Trusted-Platform-Module-2.0-Library-Part-2-Structures_Version-185_pub.pdf" \
-  "Trusted-Platform-Module-2.0-Library-Part-3-Commands_Version-185_pub.pdf" \
-  "Eratta-Trusted-Platform-Module-2.0-Library_Version-185_pub.pdf"; do
-  curl -sfL -O "$BASE/$F"
-done
+docs/standards/fetch-tcg-specs.sh
 ```
+
+It downloads any missing published document and reports `ok`, `MISSING`
+(download it by hand from the page it names; the TCG site sometimes refuses
+automated downloads) or `CHANGED` (TCG reissued the file; re-check before
+citing it, then update the checksum in the script).
 
 Check [trustedcomputinggroup.org/resource/tpm-library-specification/](https://trustedcomputinggroup.org/resource/tpm-library-specification/)
 for newer revisions or errata versions before starting spec-derived work.

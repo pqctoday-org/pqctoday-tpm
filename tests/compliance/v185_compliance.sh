@@ -624,7 +624,7 @@ printf "============================================================\n"
 # Normative-reference reminder
 cat <<'EOF'
 
-Spec references archived locally:
+Spec references (local copies; run docs/standards/fetch-tcg-specs.sh):
   docs/standards/TPM-2.0-Library-Part-0_Introduction-V185-RC4.pdf
   docs/standards/TPM-2.0-Library-Part-1_Architecture-V185-RC4.pdf
   docs/standards/TPM-2.0-Library-Part-2_Structures-V185-RC4.pdf
