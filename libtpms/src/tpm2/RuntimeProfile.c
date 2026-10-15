@@ -288,9 +288,13 @@ RuntimeProfileDedupStrItems(char *input)
         while (true) {
             dup = strstr(ncomma + 1, pos);
             if (dup) {
-                /* ensure 'dup' is a prefix of 'pos' with either ',' or '\0' before it */
-                if (((dup[-1] == ',' || dup[-1] == 0) && dup[slen] == exp) ||
-                     (dup[slen] == 0) /* last item in list */) {
+                /* 'dup' must be a whole item: preceded by ',' (or the
+                 * temporary '\0'), and followed by the expected separator or
+                 * the end of the list. Checking the start for the last item
+                 * too matters: without it "mldsa" matched inside a trailing
+                 * "hash-mldsa" and was dropped as a duplicate. */
+                if ((dup[-1] == ',' || dup[-1] == 0) &&
+                    (dup[slen] == exp || dup[slen] == 0)) {
                     memmove(pos, comma + 1, strlen(comma + 1) + 1);
                     /* keep pos as-is */
                     found = true;

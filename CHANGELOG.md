@@ -4,6 +4,28 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
+## [Unreleased]
+
+Fixes a regression in 0.10.0 found by the wolfTPM cross-check: ML-DSA keys
+could be created and could sign, but `TPM2_VerifySequenceComplete` returned
+`TPM_RC_SCHEME` once the TPM had been restarted from saved state.
+
+### Fixed
+
+- **ML-DSA dropped from a re-applied profile.** Saved state re-applies the
+  active profile, and the profile's algorithm list is de-duplicated on the way
+  in. The de-duplication checked the start of a match only when the match was
+  not the last item, so "mldsa" matched inside the trailing "hash-mldsa" and was
+  removed. ML-DSA was therefore disabled after any restart. 0.9.0 hid this with
+  an always-on shortcut for the PQC algorithms, which 0.10.0 removed. The match
+  must now be a whole item in every position.
+- **New test.** `tpm2_setprofile` applies a profile whose algorithm list ends in
+  `mlkem,mldsa,hash-mldsa` and expects all three to stay enabled. It fails
+  without the fix.
+
+Checked with wolfTPM 4.2.0 and wolfSSL 5.9.4: runtime cross-check 30 passed,
+attestation 12 passed, EK conformance 11 passed, none failed.
+
 ## [0.10.0] — 2026-10-14
 
 CI had failed since April. A clean Linux build now passes every CI step again:
