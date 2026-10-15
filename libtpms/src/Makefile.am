@@ -3,6 +3,7 @@
 #
 # For the license, see the LICENSE file in the root directory.
 #
+# Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE.
 
 AM_CFLAGS = @AM_CFLAGS@
 AM_LDFLAGS = @AM_LDFLAGS@ $(HARDENING_LDFLAGS) $(SANITIZERS) $(FUZZER) 

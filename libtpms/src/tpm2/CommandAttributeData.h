@@ -57,6 +57,7 @@
 /*  (c) Copyright IBM Corp. and others, 2016 - 2023				*/
 /*										*/
 /********************************************************************************/
+/* Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE. */
 
 /* 5.6	CommandAttributeData.h */
 /* This file should only be included by CommandCodeAttibutes.c */

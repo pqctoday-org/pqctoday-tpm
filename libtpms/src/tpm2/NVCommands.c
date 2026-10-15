@@ -57,6 +57,7 @@
 /*  (c) Copyright IBM Corp. and others, 2016 - 2024				*/
 /*										*/
 /********************************************************************************/
+/* Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE. */
 
 #include "Tpm.h"
 #include "NV_DefineSpace_fp.h"

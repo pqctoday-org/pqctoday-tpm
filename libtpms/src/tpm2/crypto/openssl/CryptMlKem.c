@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*										*/
 /*		   ML-KEM (FIPS 203) implementation for libtpms			*/
-/*		Written for pqctoday-tpm (Copyright 2026 PQC Today)		*/
+/*		Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)		*/
 /*										*/
 /*  BSD-3-Clause clean-room implementation against OpenSSL 3.6+ EVP.		*/
 /*  FIPS 203 (August 2024). TCG Library V1.85 RC4 Part 2 §14.			*/

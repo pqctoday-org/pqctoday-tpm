@@ -1,7 +1,7 @@
 /*
  * kat_loader.c — NIST ACVP internalProjection.json parser (json-c based).
  *
- * Copyright 2026 PQC Today. BSD-3-Clause.
+ * Copyright 2026 PQC Today, LLC. BSD-3-Clause.
  */
 
 #include "kat_loader.h"

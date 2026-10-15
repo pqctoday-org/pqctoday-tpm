@@ -18,7 +18,7 @@
  *   MakeCredential / ActivateCredential: Part 3 §12.5-§12.6
  *   TPM2_SignDigest restriction: Part 3 §20.7; Part 1 §22.1.2
  *
- * Copyright 2026 PQC Today. BSD-3-Clause.
+ * Copyright 2026 PQC Today, LLC. BSD-3-Clause.
  */
 
 #include <stdint.h>

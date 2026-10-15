@@ -27,7 +27,7 @@
  * directory so libtpms_plat__NVEnable_NVChipFile() short-circuits on the
  * second call and manufactured state is preserved.
  *
- * Copyright 2026 PQC Today. BSD-3-Clause.
+ * Copyright 2026 PQC Today, LLC. BSD-3-Clause.
  */
 
 #include <stdint.h>

@@ -38,6 +38,7 @@
 /* OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.		*/
 /*										*/
 /********************************************************************************/
+/* Modified by PQC Today, LLC, 2026: ML-KEM / ML-DSA (TPM 2.0 Library V1.85) support. See NOTICE. */
 
 #define _GNU_SOURCE
 #include <assert.h>

@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*										*/
 /*			  ML-DSA (FIPS 204) — Function Prototypes		*/
-/*		Written for pqctoday-tpm (Copyright 2026 PQC Today)		*/
+/*		Written for pqctoday-tpm (Copyright 2026 PQC Today, LLC)		*/
 /*										*/
 /*  Implements the libtpms crypto dispatcher contract for the three post-	*/
 /*  quantum algorithms added in TCG TPM 2.0 Library Specification V1.85:	*/

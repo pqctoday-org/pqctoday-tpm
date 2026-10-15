@@ -4,6 +4,21 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
+## [Unreleased]
+
+### Credits
+
+- New `NOTICE` file saying what PQC Today, LLC added (ML-KEM and ML-DSA for
+  TPM 2.0 Library V1.85) and which upstream libtpms and swtpm files it changed.
+- The 47 changed upstream files now carry a "Modified by PQC Today, LLC" line.
+  The IBM and TCG notices are unchanged.
+- The copyright holder is now written "PQC Today, LLC" in `LICENSE` and in the
+  files PQC Today wrote.
+- New `CITATION.cff`, so GitHub shows "Cite this repository", and a Credits
+  section in the README. The licence stays BSD-3-Clause.
+
+---
+
 ## [0.10.1] — 2026-10-15
 
 Two fixes found by cross-checking against wolfTPM 4.2.0 and the published

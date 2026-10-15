@@ -5,7 +5,7 @@
  * keygen/sign/verify/encap/decap for ML-DSA and ML-KEM. Sized for the
  * cross-val harness only, not a general-purpose PKCS#11 client.
  *
- * Copyright 2026 PQC Today. BSD-3-Clause.
+ * Copyright 2026 PQC Today, LLC. BSD-3-Clause.
  */
 
 #ifndef P11_HELPER_H
