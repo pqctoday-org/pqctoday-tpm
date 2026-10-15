@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# pqctoday-tpm runtime cross-check against wolfTPM v4.0.0 PR #445.
+# pqctoday-tpm runtime cross-check against wolfTPM v4.2.0.
 #
 # Designed to run inside the pqctoday-tpm-xcheck Docker image (built from
 # docker/Dockerfile.xcheck), which pre-builds wolfSSL + wolfTPM with
@@ -209,10 +209,10 @@ else
 fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────
-section "wolfTPM v4.0.0 PR #445 ↔ pqctoday-tpm runtime cross-check summary"
+section "wolfTPM v4.2.0 ↔ pqctoday-tpm runtime cross-check summary"
 
 printf "  pqctoday-tpm: libtpms (OpenSSL 3.6.2) + swtpm + default-v1 profile\n"
-printf "  wolfTPM:      v4.0.0 PR #445 + wolfSSL 5.9.1 wolfCrypt\n"
+printf "  wolfTPM:      v4.2.0 + wolfSSL 5.9.4 wolfCrypt\n"
 printf "\n  %d passed, %d failed\n" "$PASS" "$FAIL"
 
 [[ "$FAIL" -eq 0 ]] || exit 1

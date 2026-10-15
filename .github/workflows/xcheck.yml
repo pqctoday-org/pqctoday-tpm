@@ -1,7 +1,7 @@
 name: wolfTPM Runtime Cross-Check
 
 # Heavyweight runtime cross-implementation check: builds wolfSSL + wolfTPM
-# v4.0.0 PR #445, drives wolfTPM's PQC clients against our libtpms+swtpm
+# v4.2.0, drives wolfTPM's PQC clients against our libtpms+swtpm
 # over the swtpm socket, asserts FIPS 203/204 byte sizes match V1.85 RC4
 # spec exactly. Independent crypto stacks (wolfCrypt vs OpenSSL 3.6.2) →
 # strongest interop signal we have.
@@ -29,15 +29,17 @@ env:
   OPENSSL_VERSION: 3.6.2
   # Pinned so cross-impl results are reproducible. Bump deliberately and
   # re-run wolftpm-xcheck locally to confirm before merging.
-  WOLFSSL_REF: 7b53303
-  # PR #501 merge — closes wolfSSL/wolfTPM#499 (mlkem.h probe bug we filed),
-  # built on top of PR #445's V1.85 PQC support. Drops the in-tree symlink
-  # workaround. Bump deliberately and re-run wolftpm-xcheck before merging.
-  WOLFTPM_REF: 0ae18dcd138f2ea2aba7d146d05115cf294c07bb
+  # wolfSSL v5.9.4-stable (2026-09-25).
+  WOLFSSL_REF: 3c5eead44904df64e6a5a1f4ebdce377d35a849a
+  # wolfTPM v4.2.0 (2026-09-14): fwTPM V1.85 compliance fixes, ML-DSA quotes,
+  # ML-KEM credential activation, ML-DSA/ML-KEM template checks. Includes PR
+  # #445 (V1.85 PQC) and PR #501 (the mlkem.h probe fix for the issue we filed).
+  # Bump deliberately and re-run wolftpm-xcheck before merging.
+  WOLFTPM_REF: c3c0621333f6bf8795eace065b3903d54289adc8
 
 jobs:
   xcheck:
-    name: wolfTPM v4.0.0 ↔ pqctoday-tpm runtime cross-check
+    name: wolfTPM v4.2.0 ↔ pqctoday-tpm runtime cross-check
     runs-on: ubuntu-24.04
 
     # Only run on PRs that explicitly opt in via the 'xcheck' label.

@@ -13,7 +13,7 @@ help:
 	@echo "  make compliance     Run the TCG V1.85 PQC compliance test suite"
 	@echo "  make crossval       Run the PQC cross-validation harness in Docker"
 	@echo "  make crossval-build Build the harness without running it"
-	@echo "  make wolftpm-xcheck Runtime cross-check: wolfTPM PR #445 ↔ pqctoday-tpm"
+	@echo "  make wolftpm-xcheck Runtime cross-check: wolfTPM v4.2.0 ↔ pqctoday-tpm"
 	@echo "  make attestation-xcheck  Runtime TPM2_Quote/Certify with ML-DSA AK (dual-verified)"
 	@echo "  make ek-conformance-xcheck  V2.7 RC1 PQC EK template byte-exact conformance"
 	@echo "  make wasm-build     Build the WASM TPM emulator (Emscripten)"
