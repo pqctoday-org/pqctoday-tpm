@@ -4,7 +4,7 @@ All notable changes to pqctoday-tpm are documented here.
 
 ---
 
-## [Unreleased]
+## [0.10.0] — 2026-10-14
 
 CI had failed since April. A clean Linux build now passes every CI step again:
 the 10 libtpms tests, the swtpm build and smoke test, the three
