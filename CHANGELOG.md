@@ -6,6 +6,17 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
+### Specifications and contributions
+
+- The TCG specification PDFs are no longer stored in the repository: TCG
+  licenses the text only for developing products. `docs/standards/` now lists
+  each document with a link and its SHA-256, and
+  `docs/standards/fetch-tcg-specs.sh` downloads and checks local copies. The
+  NIST FIPS 203 and 204 PDFs stay in the repository.
+- New `CONTRIBUTING.md`, pull-request template and feedback issue template:
+  feedback is welcome through issues; code changes are made only by the
+  maintainer.
+
 ### Credits
 
 - New `NOTICE` file saying what PQC Today, LLC added (ML-KEM and ML-DSA for

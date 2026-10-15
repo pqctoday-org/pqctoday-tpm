@@ -100,3 +100,9 @@ vendor/
 # ---- patch quilt working files ----
 patches/.pc/
 patches/series.local
+
+# ---- TCG specification PDFs (licensed for developing products; not redistributed) ----
+# Restore local copies with docs/standards/fetch-tcg-specs.sh. NIST FIPS PDFs stay tracked.
+docs/standards/*.pdf
+!docs/standards/NIST.FIPS.203.pdf
+!docs/standards/NIST.FIPS.204.pdf
