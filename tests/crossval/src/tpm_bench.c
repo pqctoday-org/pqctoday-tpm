@@ -900,6 +900,12 @@ int main(int argc, char **argv) {
     if (chdir(tmpdir) != 0) { perror("chdir"); return 1; }
 
     TPMLIB_ChooseTPMVersion(TPMLIB_TPM_VERSION_2);
+    /* The PQC algorithms and commands are enabled by the default-v1 profile;
+     * without a profile libtpms manufactures with the frozen v0.9 "null" one. */
+    if (TPMLIB_SetProfile("{\"Name\":\"default-v1\"}") != TPM_SUCCESS) {
+        fprintf(stderr, "{\"error\":\"TPMLIB_SetProfile(default-v1) failed\"}\n");
+        return 1;
+    }
     if (TPMLIB_MainInit() != TPM_SUCCESS) {
         fprintf(stderr, "{\"error\":\"TPMLIB_MainInit failed\"}\n");
         return 1;

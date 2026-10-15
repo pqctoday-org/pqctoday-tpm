@@ -115,6 +115,12 @@ int main(void)
      * Manufacture writes NVChip; second _plat__NVEnable_NVChipFile() call is
      * a no-op (s_NvFile != NULL), so manufactured state is preserved. */
     TPMLIB_ChooseTPMVersion(TPMLIB_TPM_VERSION_2);
+    /* The PQC algorithms and commands are enabled by the default-v1 profile;
+     * without a profile libtpms manufactures with the frozen v0.9 "null" one. */
+    if (TPMLIB_SetProfile("{\"Name\":\"default-v1\"}") != TPM_SUCCESS) {
+        FAIL("TPMLIB_SetProfile(default-v1)");
+        goto cleanup;
+    }
     if (TPMLIB_MainInit() != TPM_SUCCESS) {
         FAIL("TPMLIB_MainInit");
         goto cleanup;
