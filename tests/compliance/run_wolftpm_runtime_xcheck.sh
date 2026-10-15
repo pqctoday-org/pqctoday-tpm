@@ -208,6 +208,57 @@ else
     fail "wolfTPM pqc_mssim_e2e failed (exit=$ec):\n$(echo "$out" | sed 's/^/         /')"
 fi
 
+# ── ML-KEM Labeled KEM: salted sessions (Part 1 §47.4, Equation 67) ─────────
+# A session salted with an ML-KEM key derives
+#   seed := KDFa(nameAlg, K, label, ciphertext, publicKey, bits)
+# on both sides. Before 0.10.1 the TPM used KDFe here, so no conformant client
+# could open such a session (TPM_RC_BAD_AUTH). These run wolfTPM's own
+# examples with an ML-KEM primary as the session salt key, then use the
+# session for parameter encryption on real commands.
+section "ML-KEM salted sessions (Part 1 §47.4 Eq 67, KDFa)"
+
+for kem in 512 768 1024; do
+    out=$( "$WOLFTPM_DIR/examples/keygen/keygen" -paramkey=mlkem=$kem 2>&1 ); ec=$?
+    [[ "$ec" -eq 0 ]] \
+        && pass "ML-KEM-$kem salted session: keygen with parameter encryption" \
+        || fail "ML-KEM-$kem salted session failed (exit=$ec):\n$(echo "$out" | grep -v DEBUG | tail -4 | sed 's/^/         /')"
+done
+out=$( "$WOLFTPM_DIR/examples/pcr/quote" -mlkem 2>&1 ); ec=$?
+[[ "$ec" -eq 0 ]] && echo "$out" | grep -q "attests" \
+    && pass "TPM2_Quote over an ML-KEM-768 salted, encrypted session" \
+    || fail "TPM2_Quote over an ML-KEM salted session failed (exit=$ec):\n$(echo "$out" | grep -v DEBUG | tail -4 | sed 's/^/         /')"
+out=$( "$WOLFTPM_DIR/examples/nvram/store" -mlkem 2>&1 ); ec=$?
+[[ "$ec" -eq 0 ]] \
+    && pass "NV store over an ML-KEM-768 salted, encrypted session" \
+    || fail "NV store over an ML-KEM salted session failed (exit=$ec):\n$(echo "$out" | grep -v DEBUG | tail -4 | sed 's/^/         /')"
+# Not tested here: an ML-DSA key as the session *bind* entity. Our TPM handles
+# it (proven with a 32-byte bind password), but wolfTPM 4.2.0 zero-pads the
+# primary's userAuth to the nameAlg size and keeps the padded value, while
+# Part 1 requires trailing zeros to be removed before any authorization
+# computation, so its examples fail with TPM_RC_BAD_AUTH. Upstream issue.
+
+# ── Negative tests and PQC control (wolfTPM 4.2.0 examples) ─────────────────
+section "Tampered ML-DSA signatures and ML-KEM ciphertexts are rejected"
+
+for dsa in 44 65 87; do
+    out=$( "$WOLFTPM_DIR/examples/pqc/mldsa_verify_neg" -mldsa=$dsa 2>&1 ); ec=$?
+    [[ "$ec" -eq 0 ]] && echo "$out" | grep -q "Negative-verify OK" \
+        && pass "ML-DSA-$dsa: valid signature accepted, both tampered cases rejected" \
+        || fail "ML-DSA-$dsa negative verify (exit=$ec):\n$(echo "$out" | grep -v DEBUG | tail -4 | sed 's/^/         /')"
+done
+for kem in 512 768 1024; do
+    out=$( "$WOLFTPM_DIR/examples/pqc/mlkem_decap_neg" -mlkem=$kem 2>&1 ); ec=$?
+    [[ "$ec" -eq 0 ]] && echo "$out" | grep -q "Negative-decap OK" \
+        && pass "ML-KEM-$kem: genuine ciphertext reproduces the secret, tampered one does not" \
+        || fail "ML-KEM-$kem negative decap (exit=$ec):\n$(echo "$out" | grep -v DEBUG | tail -4 | sed 's/^/         /')"
+done
+for op in --mldsa --hash-mldsa --mlkem; do
+    out=$( "$WOLFTPM_DIR/examples/pqc/pqc_ctrl" $op 2>&1 ); ec=$?
+    [[ "$ec" -eq 0 ]] && echo "$out" | grep -q "PASS" \
+        && pass "pqc_ctrl $op: $(echo "$out" | grep -m1 PASS | sed 's/^ *PASS *//')" \
+        || fail "pqc_ctrl $op (exit=$ec):\n$(echo "$out" | grep -v DEBUG | tail -4 | sed 's/^/         /')"
+done
+
 # ── Summary ─────────────────────────────────────────────────────────────────
 section "wolfTPM v4.2.0 ↔ pqctoday-tpm runtime cross-check summary"
 
