@@ -6,7 +6,8 @@ All notable changes to pqctoday-tpm are documented here.
 
 ## [Unreleased]
 
-Fixes a regression in 0.10.0 found by the wolfTPM cross-check: ML-DSA keys
+Two fixes found by cross-checking against wolfTPM 4.2.0 and the published
+TPM 2.0 Library v1.85 (2026-03-12). The first is a regression in 0.10.0: ML-DSA keys
 could be created and could sign, but `TPM2_VerifySequenceComplete` returned
 `TPM_RC_SCHEME` once the TPM had been restarted from saved state.
 
@@ -23,8 +24,26 @@ could be created and could sign, but `TPM2_VerifySequenceComplete` returned
   `mlkem,mldsa,hash-mldsa` and expects all three to stay enabled. It fails
   without the fix.
 
-Checked with wolfTPM 4.2.0 and wolfSSL 5.9.4: runtime cross-check 30 passed,
-attestation 12 passed, EK conformance 11 passed, none failed.
+- **ML-KEM salted sessions, credential activation and import now follow the
+  specification.** The ML-KEM Labeled KEM derives
+  `seed := KDFa(nameAlg, K, label, ciphertext, publicKey, bits)`
+  (Part 1 §47.4, Equation 67). The TPM used KDFe, as for ECC, so no conformant
+  client could open a session salted with an ML-KEM key (`TPM_RC_BAD_AUTH`),
+  and the same derivation backs `TPM2_ActivateCredential` and `TPM2_Import`
+  with an ML-KEM key. Both the encapsulate and decapsulate sides now use KDFa.
+  This was never working; 0.9.0 behaves the same as 0.10.0 here.
+- **Cross-check coverage.** The runtime cross-check now also runs, against
+  wolfTPM 4.2.0: ML-KEM-512/768/1024 salted sessions, `TPM2_Quote` and an NV
+  store over an ML-KEM-salted encrypted session, the ML-DSA and ML-KEM
+  negative tests (tampered signatures and ciphertexts rejected), and
+  `pqc_ctrl` for ML-DSA, HashML-DSA and ML-KEM.
+
+**Known interoperability gap, not in this TPM.** wolfTPM 4.2.0's examples
+that bind a session to an ML-DSA key fail with `TPM_RC_BAD_AUTH`: wolfTPM
+zero-pads the key's userAuth to the nameAlg size and uses the padded value,
+while Part 1 requires trailing zeros to be removed before any authorization
+computation. With a full-length bind password the same flow works against
+this TPM.
 
 ## [0.10.0] — 2026-10-14
 

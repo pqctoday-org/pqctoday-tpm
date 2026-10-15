@@ -732,17 +732,19 @@ CryptSecretEncrypt(OBJECT*      encryptKey,  // IN: encryption key object
 			      {
 				  MemoryCopy(secret->t.secret, ct.t.buffer, ct.t.size);
 				  secret->t.size = ct.t.size;
-				  /* Derive seed via KDFe — mirrors ECC path.
-				   * Z          = 32-byte ML-KEM shared secret
-				   * PartyUInfo = ciphertext (ephemeral encapsulation value)
-				   * PartyVInfo = recipient public key (static value) */
-				  CryptKDFe(encryptKey->publicArea.nameAlg,
+				  /* ML-KEM Labeled KEM, Part 1 §47.4 Equation 67:
+				   *   seed := KDFa(nameAlg, K, label, ciphertext,
+				   *                publicKey, bits)
+				   * KDFa, not the KDFe of the ECC path. */
+				  CryptKDFa(encryptKey->publicArea.nameAlg,
 					    &ss.b,
 					    label,
 					    (TPM2B*)&ct,
 					    &encryptKey->publicArea.unique.mlkem.b,
 					    data->t.size * 8,
-					    data->t.buffer);
+					    data->t.buffer,
+					    NULL,
+					    FALSE);
 			      }
 		      }
 	      }
@@ -910,14 +912,17 @@ CryptSecretDecrypt(OBJECT*      decryptKey,   // IN: decrypt key
 		      {
 			  data->t.size =
 			      CryptHashGetDigestSize(decryptKey->publicArea.nameAlg);
-			  /* Same KDFe derivation as encrypt side. */
-			  CryptKDFe(decryptKey->publicArea.nameAlg,
-				    &ss.b,
-				    label,
-				    (TPM2B*)&ct,
-				    &decryptKey->publicArea.unique.mlkem.b,
-				    data->t.size * 8,
-				    data->t.buffer);
+			  /* Same KDFa derivation as the encrypt side
+			   * (Part 1 §47.4 Equation 67). */
+			  CryptKDFa(decryptKey->publicArea.nameAlg,
+					    &ss.b,
+					    label,
+					    (TPM2B*)&ct,
+					    &decryptKey->publicArea.unique.mlkem.b,
+					    data->t.size * 8,
+					    data->t.buffer,
+					    NULL,
+					    FALSE);
 		      }
 	      }
 	      break;
