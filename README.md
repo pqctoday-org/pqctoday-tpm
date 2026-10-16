@@ -594,7 +594,7 @@ In-tree references organized by purpose:
 
 | Path | Purpose |
 | --- | --- |
-| [`docs/standards/`](docs/standards/) | The TCG TPM 2.0 Library V1.85 and related TCG specifications, as links with SHA-256 (run `docs/standards/fetch-tcg-specs.sh` for local copies), plus the NIST FIPS 203/204 PDFs |
+| [`docs/standards/`](docs/standards/) | The TCG TPM 2.0 Library V1.85, related TCG specifications and NIST FIPS 203/204, as links with SHA-256 (run `docs/standards/fetch-tcg-specs.sh` for local copies) |
 | [`docs/TPMdocextract.md`](docs/TPMdocextract.md) | Curated spec extract: algorithm IDs (§6.3), parameter sets (§11), structure definitions (§12.2.3 Tables 229/230/231), capability bits (§8.7 Table 46), Phase 3 + 4 command wire formats (§12.4–§12.6, §14.10/§14.11, §17.5/§17.6, §20.3/§20.4/§20.6/§20.7) |
 | [`tests/compliance/cross-check-report.md`](tests/compliance/cross-check-report.md) | Side-by-side comparison vs wolfTPM v4.0.0 PR #445 + V1.85 RC4 spec; runtime cross-validation snapshots; per-commit resolution log of every spec-conformance gap closed |
 | [`CHANGELOG.md`](CHANGELOG.md) | Phase-by-phase implementation history with spec section citations on every change |
