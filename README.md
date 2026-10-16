@@ -656,3 +656,8 @@ BSD-3-Clause — same as upstream libtpms and swtpm. Copyright (c) 2026 PQC Toda
 LLC for the PQC additions; the upstream copyright notices stay in their files.
 [NOTICE](NOTICE) lists what PQC Today, LLC added and which upstream files it
 changed (each carries a "Modified by PQC Today, LLC" line).
+
+No patent licence comes with this code: libtpms, swtpm and the TCG
+specifications grant none, and neither does PQC Today, LLC. Check the patents
+that apply to your use (for example to the PQC algorithms or to TPM features)
+before shipping a product built on it.
