@@ -104,3 +104,9 @@ patches/series.local
 # ---- Third-party specification PDFs (never redistributed from this repository) ----
 # Restore local copies with docs/standards/fetch-tcg-specs.sh.
 docs/standards/*.pdf
+
+# Local agent instruction files are kept out of this repository.
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+CODEX.md
